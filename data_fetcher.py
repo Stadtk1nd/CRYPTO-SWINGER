@@ -65,7 +65,7 @@ def fetch_fundamental_data(coin_id, timeout=5):
             "community_score": 0
         }
 
-def fetch_macro_data(fred_api_key, timeout=5):
+def fetch_macro_data(fred_api_key, alpha_vantage_api_key, timeout=5):
     """Récupère les données macroéconomiques avec parallélisation."""
     def fetch_fear_greed():
         try:
@@ -97,26 +97,47 @@ def fetch_macro_data(fred_api_key, timeout=5):
             logger.error(f"Erreur FED rate : {e}")
             return None
 
+    def fetch_sp500(alpha_vantage_api_key):
+        try:
+            url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&apikey={alpha_vantage_api_key}"
+            response = requests.get(url, timeout=timeout)
+            response.raise_for_status()
+            data = response.json()
+            if "Time Series (Daily)" not in data:
+                raise ValueError("Données S&P 500 absentes ou format incorrect")
+            latest_date = sorted(data["Time Series (Daily)"].keys())[-1]
+            sp500_value = float(data["Time Series (Daily)"][latest_date]["4. close"])
+            return {"sp500_value": sp500_value, "sp500_date": latest_date}
+        except Exception as e:
+            logger.error(f"Erreur S&P 500 : {e}")
+            return None
+
     start_time = datetime.now()
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        results = list(executor.map(lambda f: f(), [fetch_fear_greed, fetch_fed_rate]))
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        results = list(executor.map(lambda f: f(), [
+            fetch_fear_greed,
+            fetch_fed_rate,
+            lambda: fetch_sp500(alpha_vantage_api_key)
+        ]))
     
     macro_data = {}
     if results[0]:
         macro_data.update(results[0])
     if results[1]:
         macro_data.update(results[1])
+    if results[2]:
+        macro_data.update(results[2])
     logger.info(f"fetch_macro_data terminé en {(datetime.now() - start_time).total_seconds():.2f}s")
     return macro_data
 
-def fetch_all_data(symbol, interval, coin_id, fred_api_key):
+def fetch_all_data(symbol, interval, coin_id, fred_api_key, alpha_vantage_api_key):
     """Récupère toutes les données en parallèle."""
     start_time = datetime.now()
     with ThreadPoolExecutor(max_workers=3) as executor:
         futures = [
             executor.submit(fetch_klines, symbol, interval),
             executor.submit(fetch_fundamental_data, coin_id),
-            executor.submit(fetch_macro_data, fred_api_key)
+            executor.submit(fetch_macro_data, fred_api_key, alpha_vantage_api_key)
         ]
         price_data, fundamental_data, macro_data = [f.result() for f in futures]
     logger.info(f"fetch_all_data terminé en {(datetime.now() - start_time).total_seconds():.2f}s")
