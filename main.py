@@ -8,10 +8,17 @@ from data_fetcher import fetch_all_data
 from indicators import calculate_indicators, validate_data
 from analyzer import analyze_technical, analyze_fundamental, analyze_macro, generate_recommendation
 
-# Configuration de la journalisation
-logging.basicConfig(level=logging.INFO, filename="trading.log", format="%(asctime)s - %(levelname)s - %(message)s")
+# Configuration de la journalisation vers stdout avec un handler en mémoire
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
+
+# Handler en mémoire pour capturer les logs
+from io import StringIO
+log_stream = StringIO()
+stream_handler = logging.StreamHandler(log_stream)
+stream_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
+logger.addHandler(stream_handler)
 
 # Clés API depuis variables d’environnement
 FRED_API_KEY = os.environ.get("FRED_API_KEY")
@@ -31,6 +38,10 @@ with st.form("trading_form"):
 if submit_button:
     with st.spinner("Analyse en cours..."):
         try:
+            # Réinitialiser le buffer de logs
+            log_stream.seek(0)
+            log_stream.truncate(0)
+
             # Préparation des paramètres
             symbol = symbol_input if symbol_input.endswith("USDT") else symbol_input + "USDT"
             coin_id_map = {"BTC": "bitcoin", "ETH": "ethereum", "BNB": "binancecoin", "ADA": "cardano"}
@@ -40,10 +51,16 @@ if submit_button:
             # Récupération des données
             price_data, fundamental_data, macro_data = fetch_all_data(symbol, interval, coin_id, FRED_API_KEY, ALPHA_VANTAGE_API_KEY)
 
+            # Affichage des logs capturés
+            with st.expander("Logs de débogage (avant validation)"):
+                log_content = log_stream.getvalue().splitlines()
+                st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
+
             # Validation des données
             is_valid, validation_message = validate_data(price_data)
             if not is_valid:
                 st.error(f"❌ Erreur : {validation_message}")
+                st.markdown("**Détails supplémentaires** : Vérifiez les logs ci-dessus pour plus d’informations. Cela peut être dû à une erreur réseau ou à une limitation de l’API Binance.")
                 st.stop()
 
             # Calcul des indicateurs
@@ -77,15 +94,10 @@ if submit_button:
                 for detail in macro_details:
                     st.markdown(f"- {detail}")
 
-            # Affichage des logs pour débogage
-            with st.expander("Logs de débogage"):
-                try:
-                    with open("trading.log", "r") as log_file:
-                        log_content = log_file.readlines()
-                        # Afficher les 10 dernières lignes pour éviter une surcharge
-                        st.text("\n".join(log_content[-10:]))
-                except Exception as e:
-                    st.warning("Impossible de lire trading.log : assurez-vous que le fichier est accessible.")
+            # Affichage des logs après analyse
+            with st.expander("Logs de débogage (après analyse)"):
+                log_content = log_stream.getvalue().splitlines()
+                st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
 
             # Visualisation
             fig = px.line(price_data, x="date", y="close", title=f"Prix de {symbol}")
@@ -96,3 +108,6 @@ if submit_button:
         except Exception as e:
             logger.error(f"Erreur générale : {e}")
             st.error(f"❌ Une erreur est survenue : {e}")
+            with st.expander("Logs de débogage (en cas d’erreur)"):
+                log_content = log_stream.getvalue().splitlines()
+                st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
