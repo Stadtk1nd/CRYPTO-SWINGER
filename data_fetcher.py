@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
     """Récupère les données de prix via un proxy pour contourner les restrictions de Binance."""
-    # Utilisation du proxy pour les requêtes Binance
     url = f"https://crypto-swing-proxy.fly.dev/proxy/api/v3/klines?symbol={symbol}&interval={interval}&limit=200"
     for attempt in range(max_retries):
         try:
@@ -18,7 +17,7 @@ def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
             response = requests.get(url, timeout=10)
             if response.status_code == 451:
                 logger.error(f"Erreur API via proxy : Accès bloqué pour des raisons légales (451 Client Error)")
-                return fetch_klines_fallback(symbol, interval)  # Passer directement à l'API de secours
+                return fetch_klines_fallback(symbol, interval)
             response.raise_for_status()
             data = response.json()
             if isinstance(data, dict) and "code" in data:
@@ -28,9 +27,13 @@ def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
                 "timestamp", "open", "high", "low", "close", "volume", "close_time",
                 "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
             ])
+            # Convertir toutes les colonnes numériques en float
+            numeric_columns = ["open", "high", "low", "close", "volume", "quote_asset_volume", "taker_buy_base", "taker_buy_quote"]
+            for col in numeric_columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
+                if df[col].isnull().any():
+                    logger.warning(f"Des valeurs non numériques ont été trouvées dans la colonne {col}, remplacées par NaN")
             df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
-            df["close"] = df["close"].astype(float)
-            df["volume"] = df["volume"].astype(float)
             logger.info(f"fetch_klines: {len(df)} lignes récupérées pour {symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
             return df
         except Exception as e:
