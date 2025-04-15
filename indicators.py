@@ -19,8 +19,11 @@ def calculate_indicators(df, interval_input):
         adx_window = 14 if interval_input in ["1H", "4H"] else 7
         rsi_base = {"1H": 9, "4H": 10, "1D": 14, "1W": 21}.get(interval_input, 14)
 
-        # Calcul de la volatilité pour ajuster dynamiquement RSI
-        volatility = (df["high"] - df["low"]).mean() / df["close"].mean() * 100
+        # Calcul de la volatilité avec protection contre division par zéro
+        close_mean = df["close"].mean()
+        if close_mean == 0:
+            raise ValueError("Prix moyen de clôture nul, données invalides")
+        volatility = (df["high"] - df["low"]).mean() / close_mean * 100
         rsi_window = max(5, min(50, rsi_base + (-3 if volatility > 5 else 3 if volatility < 2 else 0)))
 
         indicators = {
@@ -53,7 +56,7 @@ def calculate_indicators(df, interval_input):
             df[name] = series
 
         # Calculs supplémentaires
-        volatility_factor = volatility / 5
+        volatility_factor = volatility / 5 if volatility != 0 else 1.0
         volume_spike_factor = 1.5 if df["VOLUME_SPIKE"].iloc[-5:].any() else 1.0
         liquidation_margin = 0.1 * (1 + volatility_factor) * volume_spike_factor
         df["LIQUIDATION_LONG"] = df[["SUPPORT", "FIBO_0.382"]].min(axis=1) - liquidation_margin * df["ATR_14"]
@@ -74,6 +77,12 @@ def calculate_indicators(df, interval_input):
 
 def validate_data(df):
     """Valide les données pour détecter les anomalies."""
+    if df.empty:
+        logger.error("DataFrame vide reçu dans validate_data")
+        return False, "Données manquantes ou invalides"
+    if df["close"].mean() == 0:
+        logger.error("Prix moyen de clôture nul")
+        return False, "Prix moyen de clôture nul, données invalides"
     if df["close"].pct_change().abs().max() > 0.5:
         logger.warning("Variation de prix anormale (> 50%)")
         return False, "Variation de prix anormale détectée (> 50%)"
