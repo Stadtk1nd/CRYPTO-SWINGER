@@ -4,21 +4,25 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import logging
 import time
+import os
 
-# Pas de logging.basicConfig ici, configuration centralisée dans main.py
 logger = logging.getLogger(__name__)
 
 def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
-    """Récupère les données de prix via Binance avec retry."""
-    url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit=100"
+    """Récupère les données de prix via un proxy pour contourner les restrictions de Binance."""
+    # Utilisation du proxy pour les requêtes Binance
+    url = f"https://crypto-swing-proxy.fly.dev/proxy/api/v3/klines?symbol={symbol}&interval={interval}&limit=200"
     for attempt in range(max_retries):
         try:
             start_time = datetime.now()
             response = requests.get(url, timeout=10)
+            if response.status_code == 451:
+                logger.error(f"Erreur API via proxy : Accès bloqué pour des raisons légales (451 Client Error)")
+                return fetch_klines_fallback(symbol, interval)  # Passer directement à l'API de secours
             response.raise_for_status()
             data = response.json()
             if isinstance(data, dict) and "code" in data:
-                logger.error(f"Erreur API Binance : {data['msg']} (code: {data['code']})")
+                logger.error(f"Erreur API via proxy : {data['msg']} (code: {data['code']})")
                 return pd.DataFrame()
             df = pd.DataFrame(data, columns=[
                 "timestamp", "open", "high", "low", "close", "volume", "close_time",
@@ -30,11 +34,11 @@ def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
             logger.info(f"fetch_klines: {len(df)} lignes récupérées pour {symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
             return df
         except Exception as e:
-            logger.error(f"Erreur fetch_klines ({symbol}, {interval}) - Tentative {attempt + 1}/{max_retries} : {e}")
+            logger.error(f"Erreur fetch_klines via proxy ({symbol}, {interval}) - Tentative {attempt + 1}/{max_retries} : {e}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
             else:
-                logger.warning(f"Échec après {max_retries} tentatives, passage à l’API de secours (CoinGecko)")
+                logger.warning(f"Échec après {max_retries} tentatives via proxy, passage à l’API de secours (CoinGecko)")
                 return fetch_klines_fallback(symbol, interval)
 
 def fetch_klines_fallback(symbol, interval):
@@ -44,7 +48,12 @@ def fetch_klines_fallback(symbol, interval):
     symbol_map = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "BNBUSDT": "binancecoin", "ADAUSDT": "cardano"}
     coin_id = symbol_map.get(symbol, symbol.lower().replace("usdt", ""))
     
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=7&interval={coingecko_interval}"
+    coingecko_api_key = os.environ.get("COINGECKO_API_KEY")
+    if not coingecko_api_key:
+        logger.error("Clé API CoinGecko manquante. Veuillez configurer la variable d’environnement COINGECKO_API_KEY.")
+        return fetch_klines_fallback_kraken(symbol, interval)
+
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=7&interval={coingecko_interval}&x_cg_demo_api_key={coingecko_api_key}"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
@@ -53,7 +62,7 @@ def fetch_klines_fallback(symbol, interval):
         prices = data.get("prices", [])
         if not prices:
             logger.error(f"fetch_klines_fallback: Aucune donnée renvoyée par CoinGecko pour {coin_id}")
-            return fetch_klines_fallback_kraken(symbol, interval)  # Passer à Kraken si CoinGecko échoue
+            return fetch_klines_fallback_kraken(symbol, interval)
         df = pd.DataFrame(prices, columns=["timestamp", "close"])
         df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
         df["open"] = df["close"]
@@ -85,13 +94,13 @@ def fetch_klines_fallback_kraken(symbol, interval):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        if data["error"]:
+        if data["error"] and len(data["error"]) > 0:
             logger.error(f"Erreur API Kraken : {data['error']}")
-            return pd.DataFrame()
-        ohlc_data = data["result"][kraken_symbol]
+            return fetch_klines_fallback_binance_futures(symbol, interval)
+        ohlc_data = data["result"].get(kraken_symbol, [])
         if not ohlc_data:
             logger.error(f"fetch_klines_fallback_kraken: Aucune donnée renvoyée par Kraken pour {kraken_symbol}")
-            return pd.DataFrame()
+            return fetch_klines_fallback_binance_futures(symbol, interval)
         df = pd.DataFrame(ohlc_data, columns=[
             "timestamp", "open", "high", "low", "close", "vwap", "volume", "count"
         ])
@@ -108,11 +117,43 @@ def fetch_klines_fallback_kraken(symbol, interval):
         return df
     except Exception as e:
         logger.error(f"Erreur fetch_klines_fallback_kraken ({symbol}, {interval}) : {e}")
+        return fetch_klines_fallback_binance_futures(symbol, interval)
+
+def fetch_klines_fallback_binance_futures(symbol, interval):
+    """Récupère les données de prix via Binance Futures comme dernier recours."""
+    interval_map = {"1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w"}
+    binance_interval = interval_map.get(interval.lower(), "1h")
+    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={binance_interval}&limit=200"
+    try:
+        start_time = datetime.now()
+        response = requests.get(url, timeout=10)
+        if response.status_code == 451:
+            logger.error(f"Erreur API Binance Futures : Accès bloqué pour des raisons légales (451 Client Error)")
+            return pd.DataFrame()
+        response.raise_for_status()
+        data = response.json()
+        if isinstance(data, dict) and "code" in data:
+            logger.error(f"Erreur API Binance Futures : {data['msg']} (code: {data['code']})")
+            return pd.DataFrame()
+        df = pd.DataFrame(data, columns=[
+            "timestamp", "open", "high", "low", "close", "volume", "close_time",
+            "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
+        ])
+        df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df["close"] = df["close"].astype(float)
+        df["volume"] = df["volume"].astype(float)
+        logger.info(f"fetch_klines_fallback_binance_futures: {len(df)} lignes récupérées pour {symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
+        return df
+    except Exception as e:
+        logger.error(f"Erreur fetch_klines_fallback_binance_futures ({symbol}, {interval}) : {e}")
         return pd.DataFrame()
 
 def fetch_fundamental_data(coin_id):
     """Récupère les données fondamentales via CoinGecko."""
+    coingecko_api_key = os.environ.get("COINGECKO_API_KEY")
     url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
+    if coingecko_api_key:
+        url += f"?x_cg_demo_api_key={coingecko_api_key}"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
