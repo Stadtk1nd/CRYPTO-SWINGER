@@ -10,6 +10,9 @@ def analyze_technical(df, interval_input):
     price = last["close"]
     atr = last["ATR_14"]
     volatility = df["close"].pct_change().rolling(window=20).std().iloc[-1] * 100
+    if pd.isna(volatility) or volatility == 0:
+        logger.warning("Volatilité nulle ou non calculable, utilisation de valeur par défaut")
+        volatility = 1.0
 
     technical_score = 0
     technical_details = []
@@ -32,7 +35,6 @@ def analyze_technical(df, interval_input):
         technical_score -= 2
         technical_details.append("MACD baissier (-2)")
 
-    # Ajouter d'autres indicateurs (simplifié pour l'exemple)
     return technical_score, technical_details
 
 def analyze_fundamental(fundamental_data):
@@ -42,7 +44,7 @@ def analyze_fundamental(fundamental_data):
     if fundamental_data["market_cap"] > 100_000_000_000:
         fundamental_score += 2
         fundamental_details.append("Market cap élevé (> 100B USD) (+2)")
-    if fundamental_data["volume_24h"] / fundamental_data["market_cap"] > 0.05:
+    if fundamental_data["market_cap"] != 0 and fundamental_data["volume_24h"] / fundamental_data["market_cap"] > 0.05:
         fundamental_score += 1
         fundamental_details.append("Volume élevé (+1)")
     return fundamental_score, fundamental_details
@@ -64,6 +66,9 @@ def generate_recommendation(df, technical_score, fundamental_score, macro_score,
     price = last["close"]
     atr = last["ATR_14"]
     volatility = df["close"].pct_change().rolling(window=20).std().iloc[-1] * 100
+    if pd.isna(volatility) or volatility == 0:
+        logger.warning("Volatilité nulle, utilisation de valeur par défaut")
+        volatility = 1.0
 
     # Pondération des scores
     weights = {"1H": (0.6, 0.2, 0.2), "4H": (0.5, 0.3, 0.2), "1D": (0.4, 0.3, 0.3), "1W": (0.3, 0.3, 0.4)}
@@ -85,10 +90,10 @@ def generate_recommendation(df, technical_score, fundamental_score, macro_score,
     # Calcul et validation des prix cibles
     buy_price = min(last["SUPPORT"], last["FIBO_0.382"]) + 0.5 * atr
     sell_price = max(last["RESISTANCE"], last["FIBO_0.618"]) - 0.5 * atr
-    min_spread = 0.5 + volatility / 100  # Spread minimum ajusté
-    if (sell_price - buy_price) / price * 100 < min_spread:
-        buy_price = price * (1 - atr / price)
-        sell_price = price * (1 + atr / price)
+    min_spread = 0.5 + (volatility / 100 if volatility != 0 else 0.01)
+    if price != 0 and (sell_price - buy_price) / price * 100 < min_spread:
+        buy_price = price * (1 - (atr / price if price != 0 else 0.01))
+        sell_price = price * (1 + (atr / price if price != 0 else 0.01))
 
     if signal == "BUY" and sell_price <= price:
         signal = "HOLD"
