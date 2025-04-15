@@ -3,29 +3,74 @@ import requests
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 import logging
+import time
 
-logging.basicConfig(level=logging.INFO, filename="trading.log", format="%(asctime)s - %(levelname)s - %(message)s")
+# Configuration de la journalisation vers stdout
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-def fetch_klines(symbol, interval):
-    """Récupère les données de prix via Binance."""
+def fetch_klines(symbol, interval, max_retries=3, retry_delay=5):
+    """Récupère les données de prix via Binance avec retry."""
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit=100"
+    for attempt in range(max_retries):
+        try:
+            start_time = datetime.now()
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, dict) and "code" in data:
+                logger.error(f"Erreur API Binance : {data['msg']} (code: {data['code']})")
+                return pd.DataFrame()
+            df = pd.DataFrame(data, columns=[
+                "timestamp", "open", "high", "low", "close", "volume", "close_time",
+                "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
+            ])
+            df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
+            df["close"] = df["close"].astype(float)
+            df["volume"] = df["volume"].astype(float)
+            logger.info(f"fetch_klines: {len(df)} lignes récupérées pour {symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
+            return df
+        except Exception as e:
+            logger.error(f"Erreur fetch_klines ({symbol}, {interval}) - Tentative {attempt + 1}/{max_retries} : {e}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                logger.warning(f"Échec après {max_retries} tentatives, passage à l’API de secours (CoinGecko)")
+                return fetch_klines_fallback(symbol, interval)
+
+def fetch_klines_fallback(symbol, interval):
+    """Récupère les données de prix via CoinGecko comme solution de secours."""
+    interval_map = {"1h": "hourly", "4h": "hourly", "1d": "daily", "1w": "daily"}
+    coingecko_interval = interval_map.get(interval.lower(), "hourly")
+    symbol_map = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "BNBUSDT": "binancecoin", "ADAUSDT": "cardano"}
+    coin_id = symbol_map.get(symbol, symbol.lower().replace("usdt", ""))
+    
+    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=7&interval={coingecko_interval}"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        df = pd.DataFrame(data, columns=[
-            "timestamp", "open", "high", "low", "close", "volume", "close_time",
-            "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
-        ])
+        prices = data.get("prices", [])
+        if not prices:
+            logger.error(f"fetch_klines_fallback: Aucune donnée renvoyée par CoinGecko pour {coin_id}")
+            return pd.DataFrame()
+        df = pd.DataFrame(prices, columns=["timestamp", "close"])
         df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
-        df["close"] = df["close"].astype(float)
-        df["volume"] = df["volume"].astype(float)
-        logger.info(f"fetch_klines: {len(df)} lignes récupérées en {(datetime.now() - start_time).total_seconds():.2f}s")
+        df["open"] = df["close"]
+        df["high"] = df["close"]
+        df["low"] = df["close"]
+        df["volume"] = 0.0
+        df["close_time"] = df["timestamp"]
+        df["quote_asset_volume"] = 0.0
+        df["number_of_trades"] = 0
+        df["taker_buy_base"] = 0.0
+        df["taker_buy_quote"] = 0.0
+        df["ignore"] = 0
+        logger.info(f"fetch_klines_fallback: {len(df)} lignes récupérées pour {coin_id} ({coingecko_interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
         return df
     except Exception as e:
-        logger.error(f"Erreur fetch_klines ({symbol}, {interval}) : {e}")
+        logger.error(f"Erreur fetch_klines_fallback ({symbol}, {interval}) : {e}")
         return pd.DataFrame()
 
 def fetch_fundamental_data(coin_id):
@@ -89,7 +134,7 @@ def fetch_cpi(fred_api_key):
         data = response.json()
         cpi_values = [float(obs["value"]) for obs in data["observations"]]
         logger.info(f"fetch_cpi: CPI récupéré en {(datetime.now() - start_time).total_seconds():.2f}s")
-        return cpi_values[-1], cpi_values[-2]  # Dernière valeur et avant-dernière pour la tendance
+        return cpi_values[-1], cpi_values[-2]
     except Exception as e:
         logger.error(f"Erreur fetch_cpi : {e}")
         return 0, 0
@@ -139,9 +184,9 @@ def fetch_sp500(alpha_vantage_api_key):
             logger.warning("fetch_sp500: Aucune donnée disponible")
             return 0, []
         dates = sorted(daily_data.keys())
-        sp500_values = [float(daily_data[date]["4. close"]) for date in dates[-7:]]  # 7 derniers jours
+        sp500_values = [float(daily_data[date]["4. close"]) for date in dates[-7:]]
         logger.info(f"fetch_sp500: Données récupérées en {(datetime.now() - start_time).total_seconds():.2f}s")
-        return sp500_values[-1], sp500_values  # Dernière valeur et liste pour variation
+        return sp500_values[-1], sp500_values
     except Exception as e:
         logger.error(f"Erreur fetch_sp500 : {e}")
         return 0, []
