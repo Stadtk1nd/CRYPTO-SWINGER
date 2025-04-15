@@ -5,11 +5,10 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import time
 
-# Configuration de la journalisation vers stdout
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Pas de logging.basicConfig ici, configuration centralisée dans main.py
 logger = logging.getLogger(__name__)
 
-def fetch_klines(symbol, interval, max_retries=3, retry_delay=5):
+def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
     """Récupère les données de prix via Binance avec retry."""
     url = f"https://api.binance.com/api/v3/klines?symbol={symbol}&interval={interval}&limit=100"
     for attempt in range(max_retries):
@@ -54,7 +53,7 @@ def fetch_klines_fallback(symbol, interval):
         prices = data.get("prices", [])
         if not prices:
             logger.error(f"fetch_klines_fallback: Aucune donnée renvoyée par CoinGecko pour {coin_id}")
-            return pd.DataFrame()
+            return fetch_klines_fallback_kraken(symbol, interval)  # Passer à Kraken si CoinGecko échoue
         df = pd.DataFrame(prices, columns=["timestamp", "close"])
         df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
         df["open"] = df["close"]
@@ -71,6 +70,44 @@ def fetch_klines_fallback(symbol, interval):
         return df
     except Exception as e:
         logger.error(f"Erreur fetch_klines_fallback ({symbol}, {interval}) : {e}")
+        return fetch_klines_fallback_kraken(symbol, interval)
+
+def fetch_klines_fallback_kraken(symbol, interval):
+    """Récupère les données de prix via Kraken comme solution de secours supplémentaire."""
+    symbol_map = {"BTCUSDT": "XBTUSD", "ETHUSDT": "ETHUSD", "BNBUSDT": "BNBUSD", "ADAUSDT": "ADAUSD"}
+    kraken_symbol = symbol_map.get(symbol, symbol.replace("USDT", "USD"))
+    interval_map = {"1h": 60, "4h": 240, "1d": 1440, "1w": 10080}
+    kraken_interval = interval_map.get(interval.lower(), 60)
+    
+    url = f"https://api.kraken.com/0/public/OHLC?pair={kraken_symbol}&interval={kraken_interval}"
+    try:
+        start_time = datetime.now()
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        if data["error"]:
+            logger.error(f"Erreur API Kraken : {data['error']}")
+            return pd.DataFrame()
+        ohlc_data = data["result"][kraken_symbol]
+        if not ohlc_data:
+            logger.error(f"fetch_klines_fallback_kraken: Aucune donnée renvoyée par Kraken pour {kraken_symbol}")
+            return pd.DataFrame()
+        df = pd.DataFrame(ohlc_data, columns=[
+            "timestamp", "open", "high", "low", "close", "vwap", "volume", "count"
+        ])
+        df["date"] = pd.to_datetime(df["timestamp"], unit="s")
+        df["close"] = df["close"].astype(float)
+        df["volume"] = df["volume"].astype(float)
+        df["close_time"] = df["timestamp"] * 1000
+        df["quote_asset_volume"] = 0.0
+        df["number_of_trades"] = df["count"]
+        df["taker_buy_base"] = 0.0
+        df["taker_buy_quote"] = 0.0
+        df["ignore"] = 0
+        logger.info(f"fetch_klines_fallback_kraken: {len(df)} lignes récupérées pour {kraken_symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
+        return df
+    except Exception as e:
+        logger.error(f"Erreur fetch_klines_fallback_kraken ({symbol}, {interval}) : {e}")
         return pd.DataFrame()
 
 def fetch_fundamental_data(coin_id):
