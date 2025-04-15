@@ -9,12 +9,11 @@ from indicators import calculate_indicators, validate_data
 from analyzer import analyze_technical, analyze_fundamental, analyze_macro, generate_recommendation
 
 # Configuration centralisée de la journalisation
-# Supprimer tous les handlers existants pour éviter les conflits
 logging.getLogger('').handlers = []
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()]  # Écrire dans stdout
+    handlers=[logging.StreamHandler()]
 )
 logger = logging.getLogger(__name__)
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
@@ -24,7 +23,7 @@ from io import StringIO
 log_stream = StringIO()
 stream_handler = logging.StreamHandler(log_stream)
 stream_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-logging.getLogger('').addHandler(stream_handler)  # Ajouter au logger racine
+logging.getLogger('').addHandler(stream_handler)
 
 # Clés API depuis variables d’environnement
 FRED_API_KEY = os.environ.get("FRED_API_KEY")
@@ -32,7 +31,7 @@ ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 LUNARCRUSH_API_KEY = os.environ.get("LUNARCRUSH_API_KEY")
 
 # Interface Streamlit
-st.title("Assistant de Trading Crypto v4.0")
+st.title("Assistant de Trading Crypto v5")
 st.write("Entrez les paramètres pour générer un plan de trading.")
 
 # Formulaire dynamique
@@ -62,10 +61,17 @@ if submit_button:
             is_valid, validation_message = validate_data(price_data)
             if not is_valid:
                 st.error(f"❌ Erreur : {validation_message}")
-                st.markdown("**Détails supplémentaires** : Consultez les logs ci-dessous pour plus d’informations. Cela peut être dû à une erreur réseau ou à une limitation de l’API.")
+                # Vérifier les logs pour des erreurs spécifiques (451 pour Binance, 401 pour CoinGecko)
+                log_content = log_stream.getvalue()
+                if "451 Client Error" in log_content:
+                    st.markdown("**Détails supplémentaires** : L’accès à l’API Binance est bloqué pour des raisons légales (erreur 451). Cela peut être dû à des restrictions géographiques ou à l’adresse IP de Streamlit Cloud.")
+                elif "401 Client Error" in log_content:
+                    st.markdown("**Détails supplémentaires** : L’accès à l’API CoinGecko a échoué (erreur 401). Une clé API est requise. Veuillez configurer la variable d’environnement COINGECKO_API_KEY dans Streamlit Cloud.")
+                else:
+                    st.markdown("**Détails supplémentaires** : Impossible de récupérer les données de prix via les API disponibles (Binance, CoinGecko, Kraken, Binance Futures). Consultez les logs ci-dessous pour plus d’informations.")
                 st.markdown("### Logs de débogage")
-                log_content = log_stream.getvalue().splitlines()
-                st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
+                log_lines = log_stream.getvalue().splitlines()
+                st.text("\n".join(log_lines[-10:]) if log_lines else "Aucun log disponible.")
                 st.stop()
 
             # Calcul des indicateurs
