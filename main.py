@@ -8,8 +8,14 @@ from data_fetcher import fetch_all_data
 from indicators import calculate_indicators, validate_data
 from analyzer import analyze_technical, analyze_fundamental, analyze_macro, generate_recommendation
 
-# Configuration de la journalisation vers stdout avec un handler en mémoire
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Configuration centralisée de la journalisation
+# Supprimer tous les handlers existants pour éviter les conflits
+logging.getLogger('').handlers = []
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.StreamHandler()]  # Écrire dans stdout
+)
 logger = logging.getLogger(__name__)
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 
@@ -18,7 +24,7 @@ from io import StringIO
 log_stream = StringIO()
 stream_handler = logging.StreamHandler(log_stream)
 stream_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
-logger.addHandler(stream_handler)
+logging.getLogger('').addHandler(stream_handler)  # Ajouter au logger racine
 
 # Clés API depuis variables d’environnement
 FRED_API_KEY = os.environ.get("FRED_API_KEY")
@@ -49,18 +55,17 @@ if submit_button:
             interval = interval_input.lower()
 
             # Récupération des données
+            logger.info(f"Début de fetch_all_data pour {symbol} ({interval})")
             price_data, fundamental_data, macro_data = fetch_all_data(symbol, interval, coin_id, FRED_API_KEY, ALPHA_VANTAGE_API_KEY)
-
-            # Affichage des logs capturés
-            with st.expander("Logs de débogage (avant validation)"):
-                log_content = log_stream.getvalue().splitlines()
-                st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
 
             # Validation des données
             is_valid, validation_message = validate_data(price_data)
             if not is_valid:
                 st.error(f"❌ Erreur : {validation_message}")
-                st.markdown("**Détails supplémentaires** : Vérifiez les logs ci-dessus pour plus d’informations. Cela peut être dû à une erreur réseau ou à une limitation de l’API Binance.")
+                st.markdown("**Détails supplémentaires** : Consultez les logs ci-dessous pour plus d’informations. Cela peut être dû à une erreur réseau ou à une limitation de l’API.")
+                st.markdown("### Logs de débogage")
+                log_content = log_stream.getvalue().splitlines()
+                st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
                 st.stop()
 
             # Calcul des indicateurs
@@ -108,6 +113,6 @@ if submit_button:
         except Exception as e:
             logger.error(f"Erreur générale : {e}")
             st.error(f"❌ Une erreur est survenue : {e}")
-            with st.expander("Logs de débogage (en cas d’erreur)"):
-                log_content = log_stream.getvalue().splitlines()
-                st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
+            st.markdown("### Logs de débogage")
+            log_content = log_stream.getvalue().splitlines()
+            st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
