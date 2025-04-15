@@ -11,7 +11,7 @@ from analyzer import analyze_technical, analyze_fundamental, analyze_macro, gene
 # Configuration centralisée de la journalisation
 logging.getLogger('').handlers = []
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Changement de INFO à DEBUG pour voir les réponses brutes
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()]
 )
@@ -31,7 +31,7 @@ ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 LUNARCRUSH_API_KEY = os.environ.get("LUNARCRUSH_API_KEY")
 
 # Interface Streamlit
-st.title("Assistant de Trading Crypto v3")
+st.title("Assistant de Trading Crypto v6")
 st.write("Entrez les paramètres pour générer un plan de trading.")
 
 # Formulaire dynamique
@@ -50,7 +50,6 @@ if submit_button:
             # Préparation des paramètres
             symbol = symbol_input if symbol_input.endswith("USDT") else symbol_input + "USDT"
             coin_id_map = {"BTC": "bitcoin", "ETH": "ethereum", "BNB": "binancecoin", "ADA": "cardano"}
-            # Corriger le mappage pour utiliser la version en majuscules de symbol_input
             symbol_key = symbol_input.upper().replace("USDT", "")
             coin_id = coin_id_map.get(symbol_key, symbol_key.lower())
             interval = interval_input.lower()
