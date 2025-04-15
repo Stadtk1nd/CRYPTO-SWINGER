@@ -31,7 +31,7 @@ ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 LUNARCRUSH_API_KEY = os.environ.get("LUNARCRUSH_API_KEY")
 
 # Interface Streamlit
-st.title("Assistant de Trading Crypto v5.0")
+st.title("Assistant de Trading Crypto v3")
 st.write("Entrez les paramètres pour générer un plan de trading.")
 
 # Formulaire dynamique
@@ -50,7 +50,9 @@ if submit_button:
             # Préparation des paramètres
             symbol = symbol_input if symbol_input.endswith("USDT") else symbol_input + "USDT"
             coin_id_map = {"BTC": "bitcoin", "ETH": "ethereum", "BNB": "binancecoin", "ADA": "cardano"}
-            coin_id = coin_id_map.get(symbol_input.lower().replace("usdt", ""), symbol_input.lower().replace("usdt", ""))
+            # Corriger le mappage pour utiliser la version en majuscules de symbol_input
+            symbol_key = symbol_input.upper().replace("USDT", "")
+            coin_id = coin_id_map.get(symbol_key, symbol_key.lower())
             interval = interval_input.lower()
 
             # Récupération des données
@@ -61,7 +63,6 @@ if submit_button:
             is_valid, validation_message = validate_data(price_data)
             if not is_valid:
                 st.error(f"❌ Erreur : {validation_message}")
-                # Vérifier les logs pour des erreurs spécifiques (451 pour Binance, 401 pour CoinGecko)
                 log_content = log_stream.getvalue()
                 if "451 Client Error" in log_content:
                     st.markdown("**Détails supplémentaires** : L’accès à l’API Binance est bloqué pour des raisons légales (erreur 451). Cela peut être dû à des restrictions géographiques ou à l’adresse IP de Streamlit Cloud.")
