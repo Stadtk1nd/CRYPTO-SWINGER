@@ -31,7 +31,7 @@ ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 LUNARCRUSH_API_KEY = os.environ.get("LUNARCRUSH_API_KEY")
 
 # Interface Streamlit
-st.title("Assistant de Trading Crypto v5")
+st.title("Assistant de Trading Crypto v5.0")
 st.write("Entrez les paramètres pour générer un plan de trading.")
 
 # Formulaire dynamique
