@@ -27,7 +27,6 @@ def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
                 "timestamp", "open", "high", "low", "close", "volume", "close_time",
                 "quote_asset_volume", "number_of_trades", "taker_buy_base", "taker_buy_quote", "ignore"
             ])
-            # Convertir toutes les colonnes numériques en float
             numeric_columns = ["open", "high", "low", "close", "volume", "quote_asset_volume", "taker_buy_base", "taker_buy_quote"]
             for col in numeric_columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
@@ -221,7 +220,7 @@ def fetch_cpi(fred_api_key):
         return 0, 0
 
 def fetch_gdp(fred_api_key):
-    """Récupère le PIB USA via FRED."""
+    """Récupère le PIB USA via FRED avec gestion des valeurs non numériques."""
     series_id = "GDP"
     url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=2"
     try:
@@ -229,8 +228,28 @@ def fetch_gdp(fred_api_key):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        gdp_values = [float(obs["value"]) for obs in data["observations"]]
-        logger.info(f"fetch_gdp: PIB récupéré en {(datetime.now() - start_time).total_seconds():.2f}s")
+        logger.debug(f"Réponse brute FRED pour GDP : {data}")
+        
+        if "observations" not in data or len(data["observations"]) < 2:
+            logger.warning("fetch_gdp: Moins de 2 observations disponibles")
+            return 0, 0
+
+        gdp_values = []
+        for obs in data["observations"]:
+            value = obs.get("value", "0")
+            try:
+                # Vérifier si la valeur est convertible en float
+                gdp_value = float(value)
+                gdp_values.append(gdp_value)
+            except ValueError as e:
+                logger.warning(f"fetch_gdp: Valeur non numérique rencontrée : '{value}', remplacée par 0")
+                gdp_values.append(0)
+
+        # S’assurer d’avoir au moins 2 valeurs
+        while len(gdp_values) < 2:
+            gdp_values.insert(0, 0)
+
+        logger.info(f"fetch_gdp: PIB récupéré ({gdp_values[-1]}, {gdp_values[-2]}) en {(datetime.now() - start_time).total_seconds():.2f}s")
         return gdp_values[-1], gdp_values[-2]
     except Exception as e:
         logger.error(f"Erreur fetch_gdp : {e}")
