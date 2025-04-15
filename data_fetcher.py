@@ -40,44 +40,47 @@ def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
             else:
-                logger.warning(f"Échec après {max_retries} tentatives via proxy, passage à l’API de secours (CoinGecko)")
+                logger.warning(f"Échec après {max_retries} tentatives via proxy, passage à l’API de secours (CoinCap)")
                 return fetch_klines_fallback(symbol, interval)
 
 def fetch_klines_fallback(symbol, interval):
-    """Récupère les données de prix via CoinGecko comme solution de secours."""
-    interval_map = {"1h": "hourly", "4h": "hourly", "1d": "daily", "1w": "daily"}
-    coingecko_interval = interval_map.get(interval.lower(), "hourly")
-    symbol_map = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "BNBUSDT": "binancecoin", "ADAUSDT": "cardano"}
+    """Récupère les données de prix via CoinCap v3 comme solution de secours."""
+    interval_map = {"1h": "h1", "4h": "h4", "1d": "d1", "1w": "d7"}
+    coincap_interval = interval_map.get(interval.lower(), "h1")
+    symbol_map = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "BNBUSDT": "binance-coin", "ADAUSDT": "cardano"}
     coin_id = symbol_map.get(symbol, symbol.lower().replace("usdt", ""))
     
-    coingecko_api_key = os.environ.get("COINGECKO_API_KEY")
-    if not coingecko_api_key:
-        logger.error("Clé API CoinGecko manquante. Veuillez configurer la variable d’environnement COINGECKO_API_KEY.")
+    coincap_api_key = os.environ.get("COINCAP_API_KEY")
+    if not coincap_api_key:
+        logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
         return fetch_klines_fallback_kraken(symbol, interval)
 
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}/market_chart?vs_currency=usd&days=7&interval={coingecko_interval}&x_cg_demo_api_key={coingecko_api_key}"
+    # Utilisation du paramètre apiKey dans l’URL
+    url = f"https://rest.coincap.io/v3/candles?exchange=binance&interval={coincap_interval}&baseId={coin_id}&quoteId=tether&apiKey={coincap_api_key}"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        prices = data.get("prices", [])
-        if not prices:
-            logger.error(f"fetch_klines_fallback: Aucune donnée renvoyée par CoinGecko pour {coin_id}")
+        candles = data.get("data", [])
+        if not candles:
+            logger.error(f"fetch_klines_fallback: Aucune donnée renvoyée par CoinCap pour {coin_id}")
             return fetch_klines_fallback_kraken(symbol, interval)
-        df = pd.DataFrame(prices, columns=["timestamp", "close"])
-        df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
-        df["open"] = df["close"]
-        df["high"] = df["close"]
-        df["low"] = df["close"]
-        df["volume"] = 0.0
-        df["close_time"] = df["timestamp"]
+        df = pd.DataFrame(candles)
+        df["timestamp"] = pd.to_datetime(df["period"], unit="ms")
+        df["date"] = df["timestamp"]
+        df["open"] = df["open"].astype(float)
+        df["high"] = df["high"].astype(float)
+        df["low"] = df["low"].astype(float)
+        df["close"] = df["close"].astype(float)
+        df["volume"] = df["volume"].astype(float)
+        df["close_time"] = df["period"]
         df["quote_asset_volume"] = 0.0
         df["number_of_trades"] = 0
         df["taker_buy_base"] = 0.0
         df["taker_buy_quote"] = 0.0
         df["ignore"] = 0
-        logger.info(f"fetch_klines_fallback: {len(df)} lignes récupérées pour {coin_id} ({coingecko_interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
+        logger.info(f"fetch_klines_fallback: {len(df)} lignes récupérées pour {coin_id} ({coincap_interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
         return df
     except Exception as e:
         logger.error(f"Erreur fetch_klines_fallback ({symbol}, {interval}) : {e}")
@@ -151,26 +154,48 @@ def fetch_klines_fallback_binance_futures(symbol, interval):
         return pd.DataFrame()
 
 def fetch_fundamental_data(coin_id):
-    """Récupère les données fondamentales via CoinGecko."""
-    coingecko_api_key = os.environ.get("COINGECKO_API_KEY")
-    url = f"https://api.coingecko.com/api/v3/coins/{coin_id}"
-    if coingecko_api_key:
-        url += f"?x_cg_demo_api_key={coingecko_api_key}"
+    """Récupère les données fondamentales via CoinCap v3."""
+    coincap_api_key = os.environ.get("COINCAP_API_KEY")
+    if not coincap_api_key:
+        logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
+        return {"market_cap": 0, "volume_24h": 0}
+
+    coincap_id_map = {
+        "bitcoin": "bitcoin",
+        "ethereum": "ethereum",
+        "binancecoin": "binance-coin",
+        "cardano": "cardano"
+    }
+    coincap_id = coincap_id_map.get(coin_id, coin_id)
+
+    # Utilisation du paramètre apiKey dans l’URL
+    url = f"https://rest.coincap.io/v3/assets/{coincap_id}?apiKey={coincap_api_key}"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
+        logger.debug(f"Réponse brute CoinCap v3 pour {coincap_id} : {data}")
+
+        asset_data = data.get("data", {})
         fundamental_data = {
-            "market_cap": data.get("market_cap", {}).get("usd", 0),
-            "volume_24h": data.get("total_volume", {}).get("usd", 0),
-            "developer_score": data.get("developer_score", 0)
+            "market_cap": float(asset_data.get("marketCapUsd", 0)),
+            "volume_24h": float(asset_data.get("volumeUsd24Hr", 0))
         }
-        logger.info(f"fetch_fundamental_data: Données récupérées en {(datetime.now() - start_time).total_seconds():.2f}s")
+
+        if all(value == 0 for value in fundamental_data.values()):
+            logger.warning(f"fetch_fundamental_data: Toutes les données fondamentales pour {coincap_id} sont à 0. Vérifiez la réponse de l’API.")
+
+        logger.info(f"fetch_fundamental_data: Données récupérées pour {coincap_id} en {(datetime.now() - start_time).total_seconds():.2f}s")
         return fundamental_data
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Erreur HTTP fetch_fundamental_data ({coincap_id}) : {e} - Code HTTP : {e.response.status_code}")
+        if e.response.status_code == 429:
+            logger.warning("Limite de taux atteinte pour CoinCap. Essayez de réduire la fréquence des requêtes.")
+        return {"market_cap": 0, "volume_24h": 0}
     except Exception as e:
-        logger.error(f"Erreur fetch_fundamental_data ({coin_id}) : {e}")
-        return {"market_cap": 0, "volume_24h": 0, "developer_score": 0}
+        logger.error(f"Erreur fetch_fundamental_data ({coincap_id}) : {e}")
+        return {"market_cap": 0, "volume_24h": 0}
 
 def fetch_fear_greed():
     """Récupère l’indice Fear & Greed."""
@@ -234,7 +259,6 @@ def fetch_gdp(fred_api_key):
             logger.warning("fetch_gdp: Aucune observation disponible")
             return 0, 0
 
-        # Récupérer les valeurs numériques valides
         gdp_values = []
         for obs in data["observations"]:
             value = obs.get("value", "0")
@@ -245,7 +269,6 @@ def fetch_gdp(fred_api_key):
                 logger.warning(f"fetch_gdp: Valeur non numérique rencontrée : '{value}', ignorée")
                 continue
 
-        # Si moins de 2 valeurs valides, compléter avec 0
         if len(gdp_values) < 2:
             logger.warning(f"fetch_gdp: Moins de 2 valeurs valides trouvées ({len(gdp_values)})")
             while len(gdp_values) < 2:
