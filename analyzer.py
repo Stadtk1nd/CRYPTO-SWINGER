@@ -1,8 +1,7 @@
 import pandas as pd
 import logging
 
-# Configuration de la journalisation vers stdout
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+# Pas de logging.basicConfig ici, configuration centralisée dans main.py
 logger = logging.getLogger(__name__)
 
 def analyze_technical(df, interval_input):
