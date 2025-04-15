@@ -58,6 +58,18 @@ def analyze_macro(macro_data, interval_input):
     if macro_data.get("fear_greed_index", 0) < 25:
         macro_score += int(2 * weight)
         macro_details.append("Fear & Greed < 25 : opportunité (+2)")
+    
+    # Analyse du S&P 500
+    sp500_value = macro_data.get("sp500_value")
+    if sp500_value:
+        # Seuil arbitraire : si S&P 500 < 4000, marché baissier
+        if sp500_value < 4000:
+            macro_score -= int(1 * weight)
+            macro_details.append("S&P 500 < 4000 : marché baissier (-1)")
+        else:
+            macro_score += int(1 * weight)
+            macro_details.append("S&P 500 > 4000 : marché haussier (+1)")
+
     return macro_score, macro_details
 
 def generate_recommendation(df, technical_score, fundamental_score, macro_score, interval_input):
