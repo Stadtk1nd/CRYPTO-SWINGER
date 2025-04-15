@@ -13,13 +13,13 @@ logging.basicConfig(level=logging.INFO, filename="trading.log", format="%(asctim
 logger = logging.getLogger(__name__)
 logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 
-# Clés API depuis variables d'environnement
+# Clés API depuis variables d’environnement
 FRED_API_KEY = os.environ.get("FRED_API_KEY")
 ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 LUNARCRUSH_API_KEY = os.environ.get("LUNARCRUSH_API_KEY")
 
 # Interface Streamlit
-st.title("Assistant de Trading Crypto")  # Modification visible
+st.title("Assistant de Trading Crypto (Version Mise à Jour - Vérification Cache)")
 st.write("Entrez les paramètres pour générer un plan de trading.")
 
 # Formulaire dynamique
@@ -76,6 +76,16 @@ if submit_button:
                 st.markdown(f"**Score macroéconomique** : {macro_score}")
                 for detail in macro_details:
                     st.markdown(f"- {detail}")
+
+            # Affichage des logs pour débogage
+            with st.expander("Logs de débogage"):
+                try:
+                    with open("trading.log", "r") as log_file:
+                        log_content = log_file.readlines()
+                        # Afficher les 10 dernières lignes pour éviter une surcharge
+                        st.text("\n".join(log_content[-10:]))
+                except Exception as e:
+                    st.warning("Impossible de lire trading.log : assurez-vous que le fichier est accessible.")
 
             # Visualisation
             fig = px.line(price_data, x="date", y="close", title=f"Prix de {symbol}")
