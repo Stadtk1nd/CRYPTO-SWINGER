@@ -15,7 +15,7 @@ logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 
 # Clés API depuis variables d'environnement
 FRED_API_KEY = os.environ.get("FRED_API_KEY")
-ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY", "votre_clé_api_alpha_vantage")
+ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 LUNARCRUSH_API_KEY = os.environ.get("LUNARCRUSH_API_KEY")
 
 # Interface Streamlit
@@ -38,7 +38,7 @@ if submit_button:
             interval = interval_input.lower()
 
             # Récupération des données
-            price_data, fundamental_data, macro_data = fetch_all_data(symbol, interval, coin_id, FRED_API_KEY)
+            price_data, fundamental_data, macro_data = fetch_all_data(symbol, interval, coin_id, FRED_API_KEY, ALPHA_VANTAGE_API_KEY)
 
             # Validation des données
             is_valid, validation_message = validate_data(price_data)
