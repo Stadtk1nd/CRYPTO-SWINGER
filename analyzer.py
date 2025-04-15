@@ -1,7 +1,8 @@
 import pandas as pd
 import logging
 
-logging.basicConfig(level=logging.INFO, filename="trading.log", format="%(asctime)s - %(levelname)s - %(message)s")
+# Configuration de la journalisation vers stdout
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
 def analyze_technical(df, interval_input):
@@ -83,7 +84,6 @@ def analyze_macro(macro_data, interval_input):
     macro_details = []
     weight = {"1H": 0.4, "4H": 0.6, "1D": 0.8, "1W": 1.0}.get(interval_input, 1.0)
 
-    # Indice Fear & Greed
     fear_greed = macro_data.get("fear_greed_index", 0)
     fng_trend = macro_data.get("fng_trend", [])
     if fear_greed < 30:
@@ -99,49 +99,44 @@ def analyze_macro(macro_data, interval_input):
         macro_score -= int(3 * weight)
         macro_details.append("Fear & Greed en baisse (-3)")
 
-    # Taux d’intérêt FED
     fed_rate = macro_data.get("fed_interest_rate", 0)
-    if fed_rate > 5:  # Seuil indicatif pour un taux élevé
+    if fed_rate > 5:
         macro_score -= int(3 * weight)
         macro_details.append("Taux FED > 5% : pression baissière (-3)")
-    elif fed_rate < 2:  # Seuil indicatif pour un taux bas
+    elif fed_rate < 2:
         macro_score += int(3 * weight)
         macro_details.append("Taux FED < 2% : environnement favorable (+3)")
 
-    # Indice des prix à la consommation (CPI)
     cpi_current = macro_data.get("cpi_current", 0)
     cpi_previous = macro_data.get("cpi_previous", 0)
     if cpi_current and cpi_previous and cpi_previous != 0:
-        cpi_inflation = ((cpi_current - cpi_previous) / cpi_previous) * 100  # Variation en %
-        if cpi_inflation > 3:  # Inflation élevée
+        cpi_inflation = ((cpi_current - cpi_previous) / cpi_previous) * 100
+        if cpi_inflation > 3:
             macro_score -= int(2 * weight)
             macro_details.append(f"Inflation CPI > 3% ({cpi_inflation:.2f}%) : pression baissière (-2)")
-        elif cpi_inflation < 1:  # Inflation faible
+        elif cpi_inflation < 1:
             macro_score += int(2 * weight)
             macro_details.append(f"Inflation CPI < 1% ({cpi_inflation:.2f}%) : environnement favorable (+2)")
 
-    # PIB USA
     gdp_current = macro_data.get("gdp_current", 0)
     gdp_previous = macro_data.get("gdp_previous", 0)
     if gdp_current and gdp_previous and gdp_previous != 0:
-        gdp_growth = ((gdp_current - gdp_previous) / gdp_previous) * 100  # Croissance en %
-        if gdp_growth < 1:  # Croissance faible
+        gdp_growth = ((gdp_current - gdp_previous) / gdp_previous) * 100
+        if gdp_growth < 1:
             macro_score -= int(2 * weight)
             macro_details.append(f"Croissance PIB < 1% ({gdp_growth:.2f}%) : ralentissement économique (-2)")
-        elif gdp_growth > 3:  # Croissance forte
+        elif gdp_growth > 3:
             macro_score += int(2 * weight)
             macro_details.append(f"Croissance PIB > 3% ({gdp_growth:.2f}%) : expansion économique (+2)")
 
-    # Taux de chômage USA
     unemployment_rate = macro_data.get("unemployment_rate", 0)
-    if unemployment_rate > 5:  # Chômage élevé
+    if unemployment_rate > 5:
         macro_score -= int(2 * weight)
         macro_details.append("Chômage > 5% : faiblesse économique (-2)")
-    elif unemployment_rate < 4:  # Chômage bas
+    elif unemployment_rate < 4:
         macro_score += int(2 * weight)
         macro_details.append("Chômage < 4% : économie robuste (+2)")
 
-    # S&P 500 : Seuil statique
     sp500_value = macro_data.get("sp500_value", 0)
     if sp500_value:
         if sp500_value < 4500:
@@ -151,17 +146,16 @@ def analyze_macro(macro_data, interval_input):
             macro_score += int(3 * weight)
             macro_details.append("S&P 500 > 4500 : marché haussier (+3)")
 
-    # S&P 500 : Variation sur 7 jours
     sp500_values = macro_data.get("sp500_values", [])
     if len(sp500_values) >= 2:
         sp500_current = sp500_values[-1]
-        sp500_7days_ago = sp500_values[-2] if len(sp500_values) == 2 else sp500_values[-7]  # Approximation
+        sp500_7days_ago = sp500_values[-2] if len(sp500_values) == 2 else sp500_values[-7]
         if sp500_7days_ago != 0:
             sp500_change = ((sp500_current - sp500_7days_ago) / sp500_7days_ago) * 100
-            if sp500_change > 2:  # Hausse significative
+            if sp500_change > 2:
                 macro_score += int(3 * weight)
                 macro_details.append(f"S&P 500 +{sp500_change:.2f}% sur 7 jours : tendance haussière (+3)")
-            elif sp500_change < -2:  # Baisse significative
+            elif sp500_change < -2:
                 macro_score -= int(3 * weight)
                 macro_details.append(f"S&P 500 {sp500_change:.2f}% sur 7 jours : tendance baissière (-3)")
 
