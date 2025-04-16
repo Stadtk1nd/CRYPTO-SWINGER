@@ -25,7 +25,7 @@ ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 LUNARCRUSH_API_KEY = os.environ.get("LUNARCRUSH_API_KEY")
 
 # Interface Streamlit
-st.title("Assistant de Trading Crypto v7")
+st.title("Assistant de Trading Crypto v7.1")
 st.write("Entrez les paramètres pour générer un plan de trading.")
 
 # Formulaire dynamique
@@ -109,6 +109,9 @@ if submit_button:
             fig.add_scatter(x=price_data["date"], y=price_data["SUPPORT"], name="Support", line=dict(dash="dash"))
             fig.add_scatter(x=price_data["date"], y=price_data["RESISTANCE"], name="Résistance", line=dict(dash="dash"))
             st.plotly_chart(fig)
+
+            # Afficher les versions des fichiers sous le graphique
+            st.write(f"Versions des fichiers utilisés : Analyzer v{ANALYZER_VERSION}, Data Fetcher v{DATA_FETCHER_VERSION}, Indicators v{INDICATORS_VERSION}")
 
         except Exception as e:
             logger.error(f"Erreur générale : {e}")
