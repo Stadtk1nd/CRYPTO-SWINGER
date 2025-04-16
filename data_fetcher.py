@@ -7,7 +7,7 @@ import time
 import os
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # Réduit le niveau de logging à INFO
+logger.setLevel(logging.INFO)
 
 def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
     """Récupère les données de prix via un proxy pour contourner les restrictions de Binance."""
@@ -56,7 +56,6 @@ def fetch_klines_fallback(symbol, interval):
         logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
         return fetch_klines_fallback_kraken(symbol, interval)
 
-    # URL restaurée à la version antérieure (sans quoteId=tether)
     url = f"https://rest.coincap.io/v3/candles?exchange=binance_timestamps&interval={coincap_interval}&baseId={coin_id}&apiKey={coincap_api_key}"
     try:
         start_time = datetime.now()
@@ -155,11 +154,11 @@ def fetch_klines_fallback_binance_futures(symbol, interval):
         return pd.DataFrame()
 
 def fetch_fundamental_data(coin_id):
-    """Récupère les données fondamentales via CoinCap v3."""
+    """Récupère les données fondamentales via CoinCap v3 et DeFiLlama pour TVL."""
     coincap_api_key = os.environ.get("COINCAP_API_KEY")
     if not coincap_api_key:
         logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
-        return {"market_cap": 0, "volume_24h": 0}
+        return {"market_cap": 0, "volume_24h": 0, "tvl": 0, "staking_yield": 0}
 
     coincap_id_map = {
         "bitcoin": "bitcoin",
@@ -169,7 +168,7 @@ def fetch_fundamental_data(coin_id):
     }
     coincap_id = coincap_id_map.get(coin_id, coin_id)
 
-    # Utilisation du paramètre apiKey dans l’URL
+    # Récupération via CoinCap
     url = f"https://rest.coincap.io/v3/assets/{coincap_id}?apiKey={coincap_api_key}"
     try:
         start_time = datetime.now()
@@ -181,22 +180,61 @@ def fetch_fundamental_data(coin_id):
         asset_data = data.get("data", {})
         fundamental_data = {
             "market_cap": float(asset_data.get("marketCapUsd", 0)),
-            "volume_24h": float(asset_data.get("volumeUsd24Hr", 0))
+            "volume_24h": float(asset_data.get("volumeUsd24Hr", 0)),
+            "tvl": 0,  # Initialisation
+            "staking_yield": 0  # Initialisation
         }
 
         if all(value == 0 for value in fundamental_data.values()):
             logger.warning(f"fetch_fundamental_data: Toutes les données fondamentales pour {coincap_id} sont à 0. Vérifiez la réponse de l’API.")
-
-        logger.info(f"fetch_fundamental_data: Données récupérées pour {coincap_id} en {(datetime.now() - start_time).total_seconds():.2f}s")
-        return fundamental_data
     except requests.exceptions.HTTPError as e:
         logger.error(f"Erreur HTTP fetch_fundamental_data ({coincap_id}) : {e} - Code HTTP : {e.response.status_code}")
         if e.response.status_code == 429:
             logger.warning("Limite de taux atteinte pour CoinCap. Essayez de réduire la fréquence des requêtes.")
-        return {"market_cap": 0, "volume_24h": 0}
+        return {"market_cap": 0, "volume_24h": 0, "tvl": 0, "staking_yield": 0}
     except Exception as e:
         logger.error(f"Erreur fetch_fundamental_data ({coincap_id}) : {e}")
-        return {"market_cap": 0, "volume_24h": 0}
+        return {"market_cap": 0, "volume_24h": 0, "tvl": 0, "staking_yield": 0}
+
+    # Récupération du TVL via DeFiLlama
+    defillama_id_map = {
+        "bitcoin": "bitcoin",
+        "ethereum": "ethereum",
+        "binancecoin": "binance-smart-chain",
+        "cardano": "cardano"
+    }
+    defillama_id = defillama_id_map.get(coin_id, coin_id)
+    defillama_url = f"https://api.llama.fi/v2/chains"
+    try:
+        response = requests.get(defillama_url, timeout=10)
+        response.raise_for_status()
+        chains = response.json()
+        for chain in chains:
+            if chain.get("gecko_id") == defillama_id:
+                fundamental_data["tvl"] = float(chain.get("tvl", 0))
+                break
+        logger.info(f"fetch_fundamental_data: TVL récupéré pour {defillama_id} : {fundamental_data['tvl']}")
+    except Exception as e:
+        logger.error(f"Erreur fetch TVL via DeFiLlama ({defillama_id}) : {e}")
+        fundamental_data["tvl"] = 0
+
+    # Récupération du staking yield (via placeholder API, à remplacer par une API réelle si disponible)
+    staking_yield = 0
+    try:
+        # Exemple : API fictive pour le staking yield
+        staking_url = f"https://api.stakingrewards.com/v1/yield/{coincap_id}"
+        response = requests.get(staking_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        staking_yield = float(data.get("yield", 0))
+        fundamental_data["staking_yield"] = staking_yield
+        logger.info(f"fetch_fundamental_data: Staking yield récupéré pour {coincap_id} : {staking_yield}")
+    except Exception as e:
+        logger.error(f"Erreur fetch staking yield ({coincap_id}) : {e}")
+        fundamental_data["staking_yield"] = 0
+
+    logger.info(f"fetch_fundamental_data: Données récupérées pour {coincap_id} en {(datetime.now() - start_time).total_seconds():.2f}s")
+    return fundamental_data
 
 def fetch_fear_greed():
     """Récupère l’indice Fear & Greed."""
@@ -211,6 +249,22 @@ def fetch_fear_greed():
         return fng_values[-1], fng_values
     except Exception as e:
         logger.error(f"Erreur fetch_fear_greed : {e}")
+        return 0, []
+
+def fetch_vix(fred_api_key):
+    """Récupère l’indice VIX (volatilité implicite) via FRED."""
+    series_id = "VIXCLS"
+    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=7"
+    try:
+        start_time = datetime.now()
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        vix_values = [float(obs["value"]) for obs in data["observations"]]
+        logger.info(f"fetch_vix: VIX récupéré en {(datetime.now() - start_time).total_seconds():.2f}s")
+        return vix_values[-1], vix_values
+    except Exception as e:
+        logger.error(f"Erreur fetch_vix : {e}")
         return 0, []
 
 def fetch_fed_interest_rate(fred_api_key):
@@ -326,6 +380,7 @@ def fetch_all_data(symbol, interval, coin_id, fred_api_key, alpha_vantage_api_ke
         future_klines = executor.submit(fetch_klines, symbol, interval)
         future_fundamental = executor.submit(fetch_fundamental_data, coin_id)
         future_fear_greed = executor.submit(fetch_fear_greed)
+        future_vix = executor.submit(fetch_vix, fred_api_key)
         future_fed_rate = executor.submit(fetch_fed_interest_rate, fred_api_key)
         future_cpi = executor.submit(fetch_cpi, fred_api_key)
         future_gdp = executor.submit(fetch_gdp, fred_api_key)
@@ -335,6 +390,7 @@ def fetch_all_data(symbol, interval, coin_id, fred_api_key, alpha_vantage_api_ke
         price_data = future_klines.result()
         fundamental_data = future_fundamental.result()
         fear_greed_index, fng_trend = future_fear_greed.result()
+        vix_value, vix_trend = future_vix.result()
         fed_rate = future_fed_rate.result()
         cpi_current, cpi_previous = future_cpi.result()
         gdp_current, gdp_previous = future_gdp.result()
@@ -344,6 +400,8 @@ def fetch_all_data(symbol, interval, coin_id, fred_api_key, alpha_vantage_api_ke
         macro_data = {
             "fear_greed_index": fear_greed_index,
             "fng_trend": fng_trend,
+            "vix_value": vix_value,
+            "vix_trend": vix_trend,
             "fed_interest_rate": fed_rate,
             "cpi_current": cpi_current,
             "cpi_previous": cpi_previous,
