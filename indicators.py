@@ -3,6 +3,7 @@ import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  # Réduit le niveau de logging à INFO
 
 def validate_data(df):
     """Valide les données de prix avant l’analyse."""
