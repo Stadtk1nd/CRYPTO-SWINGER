@@ -1,3 +1,5 @@
+VERSION = "1.0.0"
+
 import pandas as pd
 import logging
 
