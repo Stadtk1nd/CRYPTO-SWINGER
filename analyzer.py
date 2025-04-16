@@ -66,14 +66,11 @@ def analyze_fundamental(fundamental_data):
     fundamental_score = 0
     fundamental_details = []
     if fundamental_data["market_cap"] > 10_000_000_000:
-        fundamental_score += 4
+        fundamental_score += 3
         fundamental_details.append("Market cap élevé (> 10B USD) (+4)")
     if fundamental_data["market_cap"] != 0 and fundamental_data["volume_24h"] / fundamental_data["market_cap"] > 0.01:
-        fundamental_score += 3
+        fundamental_score += 2
         fundamental_details.append("Volume élevé (> 1% market cap) (+3)")
-    if fundamental_data["developer_score"] > 50:
-        fundamental_score += 3
-        fundamental_details.append("Score développeur élevé (> 50) (+3)")
     logger.info(f"Score fondamental : {fundamental_score}, Détails : {fundamental_details}")
     return fundamental_score, fundamental_details
 
