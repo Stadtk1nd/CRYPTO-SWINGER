@@ -282,9 +282,9 @@ def fetch_cpi(fred_api_key):
         return 0, 0
 
 def fetch_gdp(fred_api_key):
-    """Récupère le PIB USA via FRED avec une gestion améliorée des valeurs non numériques."""
+    """Récupère le PIB USA via FRED avec gestion des séparateurs décimaux."""
     series_id = "GDP"
-    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=10"
+    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=20"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
@@ -299,11 +299,15 @@ def fetch_gdp(fred_api_key):
         gdp_values = []
         for obs in data["observations"]:
             value = obs.get("value", "0")
-            if value == ".":
-                logger.warning(f"fetch_gdp: Valeur non numérique rencontrée : '{value}', ignorée")
+            # Ignorer les valeurs qui sont juste un point ou non exploitables
+            if value == "." or not value:
+                logger.warning(f"fetch_gdp: Valeur invalide rencontrée : '{value}', ignorée")
                 continue
+            # Nettoyer la valeur : gérer les séparateurs décimaux
             try:
-                gdp_value = float(value)
+                # Remplacer les séparateurs de milliers inutiles (ex. "12,345.67" -> "12345.67")
+                cleaned_value = value.replace(",", "")
+                gdp_value = float(cleaned_value)
                 if gdp_value <= 0:
                     logger.warning(f"fetch_gdp: Valeur non positive rencontrée : {gdp_value}, ignorée")
                     continue
