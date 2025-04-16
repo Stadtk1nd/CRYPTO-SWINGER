@@ -9,7 +9,7 @@ import os
 logger = logging.getLogger(__name__)
 
 def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
-    """Récupère les données de prix via un proxy pour contourner les restrictions de Binance."""
+    """Récupère les données de prix via un proxy pour contourner les restrictions de Binancee."""
     url = f"https://crypto-swing-proxy.fly.dev/proxy/api/v3/klines?symbol={symbol}&interval={interval}&limit=200"
     for attempt in range(max_retries):
         try:
