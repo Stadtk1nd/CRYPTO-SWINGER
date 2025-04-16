@@ -1,9 +1,8 @@
 import pandas as pd
 import logging
 
-# Pas de logging.basicConfig ici, configuration centralisée dans main.py
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)  # Réduit le niveau de logging à INFO
+logger.setLevel(logging.INFO)
 
 def analyze_technical(df, interval_input):
     """Analyse technique avec seuils dynamiques et conditions ajustées."""
@@ -63,20 +62,29 @@ def analyze_technical(df, interval_input):
     return technical_score, technical_details
 
 def analyze_fundamental(fundamental_data):
-    """Analyse fondamentale avec seuils ajustés."""
+    """Analyse fondamentale avec seuils ajustés et ajout de TVL et staking yield."""
     fundamental_score = 0
     fundamental_details = []
     if fundamental_data["market_cap"] > 10_000_000_000:
         fundamental_score += 3
-        fundamental_details.append("Market cap élevé (> 10B USD) (+4)")
+        fundamental_details.append("Market cap élevé (> 10B USD) (+3)")
     if fundamental_data["market_cap"] != 0 and fundamental_data["volume_24h"] / fundamental_data["market_cap"] > 0.01:
         fundamental_score += 2
-        fundamental_details.append("Volume élevé (> 1% market cap) (+3)")
+        fundamental_details.append("Volume élevé (> 1% market cap) (+2)")
+    if fundamental_data["tvl"] > 1_000_000_000:
+        fundamental_score += 3
+        fundamental_details.append("TVL élevé (> 1B USD) (+3)")
+    if fundamental_data["staking_yield"] > 5:
+        fundamental_score += 2
+        fundamental_details.append(f"Staking yield élevé ({fundamental_data['staking_yield']}%) (+2)")
+    elif fundamental_data["staking_yield"] < 2 and fundamental_data["staking_yield"] != 0:
+        fundamental_score -= 2
+        fundamental_details.append(f"Staking yield faible ({fundamental_data['staking_yield']}%) (-2)")
     logger.info(f"Score fondamental : {fundamental_score}, Détails : {fundamental_details}")
     return fundamental_score, fundamental_details
 
 def analyze_macro(macro_data, interval_input):
-    """Analyse macroéconomique avec tous les facteurs demandés."""
+    """Analyse macroéconomique avec ajout de VIX et réduction de l’impact de Fear & Greed."""
     macro_score = 0
     macro_details = []
     weight = {"1H": 0.4, "4H": 0.6, "1D": 0.8, "1W": 1.0}.get(interval_input, 1.0)
@@ -84,17 +92,32 @@ def analyze_macro(macro_data, interval_input):
     fear_greed = macro_data.get("fear_greed_index", 0)
     fng_trend = macro_data.get("fng_trend", [])
     if fear_greed < 30:
-        macro_score += int(4 * weight)
-        macro_details.append("Fear & Greed < 30 : opportunité (+4)")
+        macro_score += int(2 * weight)  # Réduit de 4 à 2
+        macro_details.append("Fear & Greed < 30 : opportunité (+2)")
     elif fear_greed > 70:
-        macro_score -= int(4 * weight)
-        macro_details.append("Fear & Greed > 70 : prudence (-4)")
+        macro_score -= int(2 * weight)  # Réduit de 4 à 2
+        macro_details.append("Fear & Greed > 70 : prudence (-2)")
     if len(fng_trend) >= 2 and fng_trend[-1] > fng_trend[-2]:
-        macro_score += int(3 * weight)
-        macro_details.append("Fear & Greed en hausse (+3)")
+        macro_score += int(1 * weight)  # Réduit de 3 à 1
+        macro_details.append("Fear & Greed en hausse (+1)")
     elif len(fng_trend) >= 2 and fng_trend[-1] < fng_trend[-2]:
+        macro_score -= int(1 * weight)  # Réduit de 3 à 1
+        macro_details.append("Fear & Greed en baisse (-1)")
+
+    vix_value = macro_data.get("vix_value", 0)
+    vix_trend = macro_data.get("vix_trend", [])
+    if vix_value > 30:
         macro_score -= int(3 * weight)
-        macro_details.append("Fear & Greed en baisse (-3)")
+        macro_details.append("VIX > 30 : forte volatilité, marché incertain (-3)")
+    elif vix_value < 15:
+        macro_score += int(3 * weight)
+        macro_details.append("VIX < 15 : faible volatilité, marché stable (+3)")
+    if len(vix_trend) >= 2 and vix_trend[-1] > vix_trend[-2]:
+        macro_score -= int(2 * weight)
+        macro_details.append("VIX en hausse : volatilité croissante (-2)")
+    elif len(vix_trend) >= 2 and vix_trend[-1] < vix_trend[-2]:
+        macro_score += int(2 * weight)
+        macro_details.append("VIX en baisse : volatilité décroissante (+2)")
 
     fed_rate = macro_data.get("fed_interest_rate", 0)
     if fed_rate > 5:
