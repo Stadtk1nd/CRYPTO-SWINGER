@@ -3,6 +3,7 @@ import logging
 
 # Pas de logging.basicConfig ici, configuration centralisée dans main.py
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  # Réduit le niveau de logging à INFO
 
 def analyze_technical(df, interval_input):
     """Analyse technique avec seuils dynamiques et conditions ajustées."""
