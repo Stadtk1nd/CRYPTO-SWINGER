@@ -8,15 +8,9 @@ from data_fetcher import fetch_all_data
 from indicators import calculate_indicators, validate_data
 from analyzer import analyze_technical, analyze_fundamental, analyze_macro, generate_recommendation
 
-# Configuration centralisée de la journalisation
-logging.getLogger('').handlers = []
-logging.basicConfig(
-    level=logging.DEBUG,  # Changement de INFO à DEBUG pour voir les réponses brutes
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler()]
-)
+# Configurer le logger pour n’afficher que les messages de niveau INFO ou supérieur
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-logging.getLogger("urllib3").setLevel(logging.CRITICAL)
 
 # Handler en mémoire pour capturer les logs
 from io import StringIO
