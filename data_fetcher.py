@@ -55,7 +55,7 @@ def fetch_klines_fallback(symbol, interval):
         logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
         return fetch_klines_fallback_kraken(symbol, interval)
 
-    # Utilisation du paramètre apiKey dans l’URL
+    # Correction de l’URL avec quoteId=tether
     url = f"https://rest.coincap.io/v3/candles?exchange=binance&interval={coincap_interval}&baseId={coin_id}&quoteId=tether&apiKey={coincap_api_key}"
     try:
         start_time = datetime.now()
@@ -301,7 +301,7 @@ def fetch_sp500(alpha_vantage_api_key):
     url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&apikey={alpha_vantage_api_key}"
     try:
         start_time = datetime.now()
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=20)  # Augmenter le timeout à 20 secondes
         response.raise_for_status()
         data = response.json()
         daily_data = data.get("Time Series (Daily)", {})
@@ -312,6 +312,9 @@ def fetch_sp500(alpha_vantage_api_key):
         sp500_values = [float(daily_data[date]["4. close"]) for date in dates[-7:]]
         logger.info(f"fetch_sp500: Données récupérées en {(datetime.now() - start_time).total_seconds():.2f}s")
         return sp500_values[-1], sp500_values
+    except requests.exceptions.Timeout:
+        logger.error("fetch_sp500: Délai d’attente dépassé lors de la connexion à Alpha Vantage")
+        return 0, []
     except Exception as e:
         logger.error(f"Erreur fetch_sp500 : {e}")
         return 0, []
