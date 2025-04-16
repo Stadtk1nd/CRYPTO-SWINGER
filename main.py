@@ -110,9 +110,6 @@ if submit_button:
             fig.add_scatter(x=price_data["date"], y=price_data["RESISTANCE"], name="Résistance", line=dict(dash="dash"))
             st.plotly_chart(fig)
 
-            # Afficher les versions des fichiers sous le graphique
-            st.write(f"Versions des fichiers utilisés : Analyzer v{ANALYZER_VERSION}, Data Fetcher v{DATA_FETCHER_VERSION}, Indicators v{INDICATORS_VERSION}")
-
         except Exception as e:
             logger.error(f"Erreur générale : {e}")
             st.error(f"❌ Une erreur est survenue : {e}")
