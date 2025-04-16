@@ -158,7 +158,7 @@ def fetch_fundamental_data(coin_id):
     coincap_api_key = os.environ.get("COINCAP_API_KEY")
     if not coincap_api_key:
         logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
-        return {"market_cap": 0, "volume_24h": 0, "tvl": 0, "staking_yield": 0}
+        return {"market_cap": 0, "volume_24h": 0, "tvl": 0}
 
     coincap_id_map = {
         "bitcoin": "bitcoin",
@@ -180,8 +180,7 @@ def fetch_fundamental_data(coin_id):
         fundamental_data = {
             "market_cap": float(asset_data.get("marketCapUsd", 0)),
             "volume_24h": float(asset_data.get("volumeUsd24Hr", 0)),
-            "tvl": 0,
-            "staking_yield": 0
+            "tvl": 0
         }
 
         if all(value == 0 for value in fundamental_data.values()):
@@ -190,10 +189,10 @@ def fetch_fundamental_data(coin_id):
         logger.error(f"Erreur HTTP fetch_fundamental_data ({coincap_id}) : {e} - Code HTTP : {e.response.status_code}")
         if e.response.status_code == 429:
             logger.warning("Limite de taux atteinte pour CoinCap. Essayez de réduire la fréquence des requêtes.")
-        return {"market_cap": 0, "volume_24h": 0, "tvl": 0, "staking_yield": 0}
+        return {"market_cap": 0, "volume_24h": 0, "tvl": 0}
     except Exception as e:
         logger.error(f"Erreur fetch_fundamental_data ({coincap_id}) : {e}")
-        return {"market_cap": 0, "volume_24h": 0, "tvl": 0, "staking_yield": 0}
+        return {"market_cap": 0, "volume_24h": 0, "tvl": 0}
 
     defillama_id_map = {
         "bitcoin": "bitcoin",
@@ -215,19 +214,6 @@ def fetch_fundamental_data(coin_id):
     except Exception as e:
         logger.error(f"Erreur fetch TVL via DeFiLlama ({defillama_id}) : {e}")
         fundamental_data["tvl"] = 0
-
-    staking_yield = 0
-    try:
-        staking_url = f"https://api.stakingrewards.com/v1/yield/{coincap_id}"
-        response = requests.get(staking_url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        staking_yield = float(data.get("yield", 0))
-        fundamental_data["staking_yield"] = staking_yield
-        logger.info(f"fetch_fundamental_data: Staking yield récupéré pour {coincap_id} : {staking_yield}")
-    except Exception as e:
-        logger.error(f"Erreur fetch staking yield ({coincap_id}) : {e}")
-        fundamental_data["staking_yield"] = 0
 
     logger.info(f"fetch_fundamental_data: Données récupérées pour {coincap_id} en {(datetime.now() - start_time).total_seconds():.2f}s")
     return fundamental_data
