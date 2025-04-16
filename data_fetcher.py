@@ -168,7 +168,6 @@ def fetch_fundamental_data(coin_id):
     }
     coincap_id = coincap_id_map.get(coin_id, coin_id)
 
-    # Récupération via CoinCap
     url = f"https://rest.coincap.io/v3/assets/{coincap_id}?apiKey={coincap_api_key}"
     try:
         start_time = datetime.now()
@@ -181,8 +180,8 @@ def fetch_fundamental_data(coin_id):
         fundamental_data = {
             "market_cap": float(asset_data.get("marketCapUsd", 0)),
             "volume_24h": float(asset_data.get("volumeUsd24Hr", 0)),
-            "tvl": 0,  # Initialisation
-            "staking_yield": 0  # Initialisation
+            "tvl": 0,
+            "staking_yield": 0
         }
 
         if all(value == 0 for value in fundamental_data.values()):
@@ -196,7 +195,6 @@ def fetch_fundamental_data(coin_id):
         logger.error(f"Erreur fetch_fundamental_data ({coincap_id}) : {e}")
         return {"market_cap": 0, "volume_24h": 0, "tvl": 0, "staking_yield": 0}
 
-    # Récupération du TVL via DeFiLlama
     defillama_id_map = {
         "bitcoin": "bitcoin",
         "ethereum": "ethereum",
@@ -218,10 +216,8 @@ def fetch_fundamental_data(coin_id):
         logger.error(f"Erreur fetch TVL via DeFiLlama ({defillama_id}) : {e}")
         fundamental_data["tvl"] = 0
 
-    # Récupération du staking yield (via placeholder API, à remplacer par une API réelle si disponible)
     staking_yield = 0
     try:
-        # Exemple : API fictive pour le staking yield
         staking_url = f"https://api.stakingrewards.com/v1/yield/{coincap_id}"
         response = requests.get(staking_url, timeout=10)
         response.raise_for_status()
@@ -300,9 +296,9 @@ def fetch_cpi(fred_api_key):
         return 0, 0
 
 def fetch_gdp(fred_api_key):
-    """Récupère le PIB USA via FRED en demandant plus d’observations pour trouver des valeurs valides."""
+    """Récupère le PIB USA via FRED avec une gestion améliorée des valeurs non numériques."""
     series_id = "GDP"
-    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=5"
+    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=10"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
@@ -317,8 +313,14 @@ def fetch_gdp(fred_api_key):
         gdp_values = []
         for obs in data["observations"]:
             value = obs.get("value", "0")
+            if value == ".":
+                logger.warning(f"fetch_gdp: Valeur non numérique rencontrée : '{value}', ignorée")
+                continue
             try:
                 gdp_value = float(value)
+                if gdp_value <= 0:
+                    logger.warning(f"fetch_gdp: Valeur non positive rencontrée : {gdp_value}, ignorée")
+                    continue
                 gdp_values.append(gdp_value)
             except ValueError as e:
                 logger.warning(f"fetch_gdp: Valeur non numérique rencontrée : '{value}', ignorée")
@@ -326,8 +328,7 @@ def fetch_gdp(fred_api_key):
 
         if len(gdp_values) < 2:
             logger.warning(f"fetch_gdp: Moins de 2 valeurs valides trouvées ({len(gdp_values)})")
-            while len(gdp_values) < 2:
-                gdp_values.insert(0, 0)
+            return 0, 0
 
         logger.info(f"fetch_gdp: PIB récupéré ({gdp_values[-1]}, {gdp_values[-2]}) en {(datetime.now() - start_time).total_seconds():.2f}s")
         return gdp_values[-1], gdp_values[-2]
