@@ -62,7 +62,7 @@ def analyze_technical(df, interval_input):
     return technical_score, technical_details
 
 def analyze_fundamental(fundamental_data):
-    """Analyse fondamentale avec seuils ajustés et ajout de TVL et staking yield."""
+    """Analyse fondamentale avec seuils ajustés."""
     fundamental_score = 0
     fundamental_details = []
     if fundamental_data["market_cap"] > 10_000_000_000:
@@ -74,12 +74,6 @@ def analyze_fundamental(fundamental_data):
     if fundamental_data["tvl"] > 1_000_000_000:
         fundamental_score += 3
         fundamental_details.append("TVL élevé (> 1B USD) (+3)")
-    if fundamental_data["staking_yield"] > 5:
-        fundamental_score += 2
-        fundamental_details.append(f"Staking yield élevé ({fundamental_data['staking_yield']}%) (+2)")
-    elif fundamental_data["staking_yield"] < 2 and fundamental_data["staking_yield"] != 0:
-        fundamental_score -= 2
-        fundamental_details.append(f"Staking yield faible ({fundamental_data['staking_yield']}%) (-2)")
     logger.info(f"Score fondamental : {fundamental_score}, Détails : {fundamental_details}")
     return fundamental_score, fundamental_details
 
@@ -92,16 +86,16 @@ def analyze_macro(macro_data, interval_input):
     fear_greed = macro_data.get("fear_greed_index", 0)
     fng_trend = macro_data.get("fng_trend", [])
     if fear_greed < 30:
-        macro_score += int(2 * weight)  # Réduit de 4 à 2
+        macro_score += int(2 * weight)
         macro_details.append("Fear & Greed < 30 : opportunité (+2)")
     elif fear_greed > 70:
-        macro_score -= int(2 * weight)  # Réduit de 4 à 2
+        macro_score -= int(2 * weight)
         macro_details.append("Fear & Greed > 70 : prudence (-2)")
     if len(fng_trend) >= 2 and fng_trend[-1] > fng_trend[-2]:
-        macro_score += int(1 * weight)  # Réduit de 3 à 1
+        macro_score += int(1 * weight)
         macro_details.append("Fear & Greed en hausse (+1)")
     elif len(fng_trend) >= 2 and fng_trend[-1] < fng_trend[-2]:
-        macro_score -= int(1 * weight)  # Réduit de 3 à 1
+        macro_score -= int(1 * weight)
         macro_details.append("Fear & Greed en baisse (-1)")
 
     vix_value = macro_data.get("vix_value", 0)
