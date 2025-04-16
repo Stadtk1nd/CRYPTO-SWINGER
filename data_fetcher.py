@@ -7,6 +7,7 @@ import time
 import os
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)  # Réduit le niveau de logging à INFO
 
 def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
     """Récupère les données de prix via un proxy pour contourner les restrictions de Binance."""
