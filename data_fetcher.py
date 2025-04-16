@@ -55,8 +55,8 @@ def fetch_klines_fallback(symbol, interval):
         logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
         return fetch_klines_fallback_kraken(symbol, interval)
 
-    # Correction de l’URL avec quoteId=tether
-    url = f"https://rest.coincap.io/v3/candles?exchange=binance&interval={coincap_interval}&baseId={coin_id}&quoteId=tether&apiKey={coincap_api_key}"
+    # URL corrigée avec quoteId=tether
+    url = f"https://rest.coincap.io/v3/candles?exchange=binance&interval={coincap_interval}&baseId={coin_id}"eId=tether&apiKey={coincap_api_key}"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
@@ -301,7 +301,7 @@ def fetch_sp500(alpha_vantage_api_key):
     url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&apikey={alpha_vantage_api_key}"
     try:
         start_time = datetime.now()
-        response = requests.get(url, timeout=20)  # Augmenter le timeout à 20 secondes
+        response = requests.get(url, timeout=20)
         response.raise_for_status()
         data = response.json()
         daily_data = data.get("Time Series (Daily)", {})
