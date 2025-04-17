@@ -1,3 +1,5 @@
+VERSION = "1.0.0"
+
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -48,9 +50,9 @@ if submit_button:
             coin_id = coin_id_map.get(symbol_key, symbol_key.lower())
             interval = interval_input.lower()
 
-            # Récupération des données
+            # Récupération des données avec MTFA
             logger.info(f"Début de fetch_all_data pour {symbol} ({interval})")
-            price_data, fundamental_data, macro_data = fetch_all_data(symbol, interval, coin_id, FRED_API_KEY, ALPHA_VANTAGE_API_KEY)
+            price_data, fundamental_data, macro_data, price_data_dict = fetch_all_data(symbol, interval, coin_id, FRED_API_KEY, ALPHA_VANTAGE_API_KEY)
 
             # Validation des données
             is_valid, validation_message = validate_data(price_data)
@@ -71,14 +73,14 @@ if submit_button:
             # Calcul des indicateurs
             price_data = calculate_indicators(price_data, interval_input)
 
-            # Analyse
-            technical_score, technical_details = analyze_technical(price_data, interval_input)
+            # Analyse avec MTFA
+            technical_score, technical_details = analyze_technical(price_data, interval_input, price_data_dict)
             fundamental_score, fundamental_details = analyze_fundamental(fundamental_data)
             macro_score, macro_details = analyze_macro(macro_data, interval_input)
 
-            # Recommandation
+            # Recommandation avec MTFA
             signal, confidence, buy_price, sell_price = generate_recommendation(
-                price_data, technical_score, fundamental_score, macro_score, interval_input
+                price_data, technical_score, fundamental_score, macro_score, interval_input, price_data_dict
             )
 
             # Affichage des résultats
@@ -111,7 +113,7 @@ if submit_button:
             st.plotly_chart(fig)
 
             # Afficher les versions des fichiers sous le graphique
-            st.write(f"Versions des fichiers utilisés : Analyzer v{ANALYZER_VERSION}, Data Fetcher v{DATA_FETCHER_VERSION}, Indicators v{INDICATORS_VERSION}")
+            st.write(f"Versions des fichiers utilisés : Main v{VERSION}, Analyzer v{ANALYZER_VERSION}, Data Fetcher v{DATA_FETCHER_VERSION}, Indicators v{INDICATORS_VERSION}")
 
         except Exception as e:
             logger.error(f"Erreur générale : {e}")
