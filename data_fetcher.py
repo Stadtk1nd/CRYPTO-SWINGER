@@ -1,4 +1,4 @@
-VERSION = "1.0.2"  # Incrémenté de 1.0.1 à 1.0.2 pour refléter la correction
+VERSION = "1.0.8"  # Incrémenté de 1.0.7 à 1.0.8 pour refléter la mise à jour dynamique
 
 import pandas as pd
 import requests
@@ -7,9 +7,28 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import time
 import os
+import json
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# Charger dynamiquement le dictionnaire des ID CoinCap
+def load_coincap_ids():
+    """Charge le dictionnaire des ID CoinCap depuis un fichier JSON."""
+    try:
+        with open("coincap_ids.json", "r") as f:
+            coincap_id_map = json.load(f)
+        logger.info(f"Chargé {len(coincap_id_map)} ID CoinCap depuis coincap_ids.json")
+        return coincap_id_map
+    except Exception as e:
+        logger.error(f"Erreur lors du chargement de coincap_ids.json : {e}")
+        return {
+            "btc": "bitcoin",
+            "eth": "ethereum",
+            "bnb": "binance-coin",
+            "ada": "cardano",
+            "tao": "bittensor",
+        }  # Fallback avec quelques cryptos principales
 
 def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
     """Récupère les données de prix via un proxy pour contourner les restrictions de Binance."""
@@ -162,12 +181,7 @@ def fetch_fundamental_data(coin_id):
         logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
         return {"market_cap": 0, "volume_24h": 0, "tvl": 0}
 
-    coincap_id_map = {
-        "bitcoin": "bitcoin",
-        "ethereum": "ethereum",
-        "binancecoin": "binance-coin",
-        "cardano": "cardano"
-    }
+    coincap_id_map = load_coincap_ids()  # Charger dynamiquement
     coincap_id = coincap_id_map.get(coin_id, coin_id)
 
     url = f"https://rest.coincap.io/v3/assets/{coincap_id}?apiKey={coincap_api_key}"
@@ -196,11 +210,23 @@ def fetch_fundamental_data(coin_id):
         logger.error(f"Erreur fetch_fundamental_data ({coincap_id}) : {e}")
         return {"market_cap": 0, "volume_24h": 0, "tvl": 0}
 
+    # Vérification du volume par rapport à la capitalisation boursière
+    market_cap_threshold = 10_000_000_000
+    volume_ratio_threshold = 0.01
+    if fundamental_data["market_cap"] > market_cap_threshold:
+        logger.info(f"Market cap élevé pour {coincap_id} : {fundamental_data['market_cap']}")
+    if fundamental_data["market_cap"] != 0 and fundamental_data["volume_24h"] / fundamental_data["market_cap"] > volume_ratio_threshold:
+        logger.info(f"Volume élevé pour {coincap_id} : {fundamental_data['volume_24h'] / fundamental_data['market_cap'] * 100:.2f}% de la market cap")
+
     defillama_id_map = {
         "bitcoin": "bitcoin",
         "ethereum": "ethereum",
         "binancecoin": "binance-smart-chain",
-        "cardano": "cardano"
+        "cardano": "cardano",
+        "tao": "bittensor",
+        "solana": "solana",
+        "xrp": "xrp",
+        # À compléter pour correspondre à coincap_id_map
     }
     defillama_id = defillama_id_map.get(coin_id, coin_id)
     defillama_url = f"https://api.llama.fi/v2/chains"
