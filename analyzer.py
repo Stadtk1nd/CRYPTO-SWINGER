@@ -1,4 +1,4 @@
-VERSION = "1.0.4"
+VERSION = "1.0.5"
 
 import pandas as pd
 import logging
@@ -107,7 +107,7 @@ def analyze_fundamental(fundamental_data):
     if fundamental_data["market_cap"] > market_cap_threshold:
         fundamental_score += 3
         fundamental_details.append(f"Market cap élevé (> {market_cap_threshold/1_000_000_000}B USD) (+3)")
-    if fundamental_data["market_cap"] != 0 and fundamental_data["volume_24h"] / fundamentalchise["market_cap"] > volume_ratio_threshold:
+    if fundamental_data["market_cap"] != 0 and fundamental_data["volume_24h"] / fundamental_data["market_cap"] > volume_ratio_threshold:
         fundamental_score += 2
         fundamental_details.append(f"Volume élevé (> {volume_ratio_threshold*100}% market cap) (+2)")
     if fundamental_data["tvl"] > tvl_threshold:
