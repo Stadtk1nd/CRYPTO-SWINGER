@@ -1,4 +1,4 @@
-VERSION = "1.0.1"
+VERSION = "1.0.2"  # Incrémenté de 1.0.1 à 1.0.2 pour refléter la correction
 
 import pandas as pd
 import requests
@@ -345,8 +345,8 @@ def fetch_unemployment_rate(fred_api_key):
         return 0
 
 def fetch_sp500(alpha_vantage_api_key):
-    """Récupère les données du S&P 500 via Alpha Vantage."""
-    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&apikey={alpha_vantage_api_key}"
+    """Récupère les données de SPY (ETF suivant le S&P 500) via Alpha Vantage, en tenant compte des jours ouvrés."""
+    url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&apikey={alpha_vantage_api_key}&outputsize=compact"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=20)
@@ -356,10 +356,29 @@ def fetch_sp500(alpha_vantage_api_key):
         if not daily_data:
             logger.warning("fetch_sp500: Aucune donnée disponible")
             return 0, []
+
+        # Convertir les données en DataFrame pour faciliter la manipulation
         dates = sorted(daily_data.keys())
-        sp500_values = [float(daily_data[date]["4. close"]) for date in dates[-7:]]
-        logger.info(f"fetch_sp500: Données récupérées en {(datetime.now() - start_time).total_seconds():.2f}s")
-        return sp500_values[-1], sp500_values
+        df = pd.DataFrame([
+            {"date": date, "close": float(daily_data[date]["4. close"])}
+            for date in dates
+        ])
+        df["date"] = pd.to_datetime(df["date"])
+        
+        # Filtrer les jours ouvrés (lundi à vendredi, exclure week-ends)
+        df["day_of_week"] = df["date"].dt.dayofweek  # 0 = lundi, 6 = dimanche
+        df = df[df["day_of_week"] < 5]  # Exclure samedi (5) et dimanche (6)
+
+        # Prendre les 7 derniers jours ouvrés
+        if len(df) < 7:
+            logger.warning(f"fetch_sp500: Moins de 7 jours ouvrés disponibles ({len(df)})")
+            return 0, []
+        
+        sp500_values = df["close"].tail(7).tolist()  # 7 derniers jours ouvrés
+        sp500_value = sp500_values[-1]  # Dernière valeur (plus récente)
+
+        logger.info(f"fetch_sp500: {len(sp500_values)} jours ouvrés de données SPY récupérés en {(datetime.now() - start_time).total_seconds():.2f}s")
+        return sp500_value, sp500_values
     except requests.exceptions.Timeout:
         logger.error("fetch_sp500: Délai d’attente dépassé lors de la connexion à Alpha Vantage")
         return 0, []
