@@ -1,4 +1,4 @@
-VERSION = "1.0.1"
+VERSION = "1.0.2"
 
 import pandas as pd
 import logging
@@ -6,8 +6,8 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-def analyze_technical(df, interval_input):
-    """Analyse technique avec seuils dynamiques et conditions ajustées."""
+def analyze_technical(df, interval_input, price_data_dict):
+    """Analyse technique avec seuils dynamiques, conditions ajustées et MTFA."""
     last = df.iloc[-1]
     price = last["close"]
     atr = last["ATR_14"]
@@ -19,7 +19,7 @@ def analyze_technical(df, interval_input):
     technical_score = 0
     technical_details = []
 
-    # Ajustement des seuils RSI en fonction de l’intervalle (point 5)
+    # Ajustement des seuils RSI en fonction de l’intervalle
     rsi_weight = {"1H": 1.2, "4H": 1.0, "1D": 0.8, "1W": 0.6}.get(interval_input, 1.0)
     rsi_overbought = 65 + (volatility if volatility > 5 else 0)
     rsi_oversold = 35 - (volatility if volatility > 5 else 0)
@@ -45,9 +45,31 @@ def analyze_technical(df, interval_input):
     if last["EMA_12"] > last["EMA_26"]:
         technical_score += int(3 * ema_weight)
         technical_details.append(f"EMA 12 > EMA 26 : tendance haussière (+{int(3 * ema_weight)})")
+        # Vérification MTFA : confirmer la tendance sur les timeframes supérieurs
+        trend_confirmed = True
+        for timeframe in ["4h", "1d", "1w"]:
+            if timeframe in price_data_dict and not price_data_dict[timeframe].empty:
+                tf_last = price_data_dict[timeframe].iloc[-1]
+                if tf_last["EMA_12"] < tf_last["EMA_26"]:
+                    trend_confirmed = False
+                    break
+        if trend_confirmed:
+            technical_score += 2
+            technical_details.append("Tendance haussière confirmée par MTFA (+2)")
     elif last["EMA_12"] < last["EMA_26"]:
         technical_score -= int(3 * ema_weight)
         technical_details.append(f"EMA 12 < EMA 26 : tendance baissière (-{int(3 * ema_weight)})")
+        # Vérification MTFA : confirmer la tendance sur les timeframes supérieurs
+        trend_confirmed = True
+        for timeframe in ["4h", "1d", "1w"]:
+            if timeframe in price_data_dict and not price_data_dict[timeframe].empty:
+                tf_last = price_data_dict[timeframe].iloc[-1]
+                if tf_last["EMA_12"] > tf_last["EMA_26"]:
+                    trend_confirmed = False
+                    break
+        if trend_confirmed:
+            technical_score -= 2
+            technical_details.append("Tendance baissière confirmée par MTFA (-2)")
 
     # Ajustement du poids ADX selon l’intervalle
     adx_weight = {"1H": 1.0, "4H": 1.0, "1D": 1.2, "1W": 1.2}.get(interval_input, 1.0)
@@ -194,8 +216,8 @@ def analyze_macro(macro_data, interval_input):
     logger.info(f"Score macro : {macro_score}, Détails : {macro_details}")
     return macro_score, macro_details
 
-def generate_recommendation(df, technical_score, fundamental_score, macro_score, interval_input):
-    """Génère la recommandation avec seuil réduit et validation assouplie."""
+def generate_recommendation(df, technical_score, fundamental_score, macro_score, interval_input, price_data_dict):
+    """Génère la recommandation avec seuil réduit, validation assouplie et MTFA."""
     last = df.iloc[-1]
     price = last["close"]
     atr = last["ATR_14"]
@@ -204,7 +226,15 @@ def generate_recommendation(df, technical_score, fundamental_score, macro_score,
         logger.warning("Volatilité nulle, utilisation de valeur par défaut")
         volatility = 1.0
 
-    # Ajustement des poids pour MTFA (point 1 et 5)
+    # Calcul des scores techniques sur tous les intervalles (MTFA)
+    intervals = ["1h", "4h", "1d", "1w"]
+    technical_scores = {interval_input.lower(): technical_score}
+    for interval in intervals:
+        if interval != interval_input.lower() and interval in price_data_dict and not price_data_dict[interval].empty:
+            score, _ = analyze_technical(price_data_dict[interval], interval.upper(), price_data_dict)
+            technical_scores[interval] = score
+
+    # Ajustement des poids pour MTFA
     weights = {
         "1H": (0.6, 0.2, 0.2),  # Plus de poids aux aspects techniques sur 1H
         "4H": (0.5, 0.3, 0.2),  # Équilibre entre technique et fondamental
@@ -212,11 +242,21 @@ def generate_recommendation(df, technical_score, fundamental_score, macro_score,
         "1W": (0.3, 0.4, 0.3)   # Plus de poids aux fondamentaux sur 1W
     }
     w_tech, w_fund, w_macro = weights[interval_input]
-    # Ajustement des scores avec un facteur de volatilité
-    total_score = (technical_score * w_tech + fundamental_score * w_fund + macro_score * w_macro) * (1 + volatility / 200)
+
+    # Ajustement du score technique avec MTFA
+    mtfa_weight = {"1h": 0.1, "4h": 0.2, "1d": 0.3, "1w": 0.4}
+    adjusted_technical_score = technical_score
+    for interval, score in technical_scores.items():
+        if interval != interval_input.lower():
+            weight = mtfa_weight.get(interval, 0)
+            adjusted_technical_score += score * weight
+            logger.info(f"Score technique ajusté avec {interval} : {score} * {weight} = {score * weight}")
+
+    # Calcul du score total avec le score technique ajusté
+    total_score = (adjusted_technical_score * w_tech + fundamental_score * w_fund + macro_score * w_macro) * (1 + volatility / 200)
 
     score_threshold = 0.3 * (1 + volatility / 100)
-    logger.info(f"Total score : {total_score:.2f}, Seuil : {score_threshold:.2f}")
+    logger.info(f"Total score (avec MTFA) : {total_score:.2f}, Seuil : {score_threshold:.2f}")
 
     if total_score > score_threshold:
         signal = "BUY"
@@ -228,11 +268,18 @@ def generate_recommendation(df, technical_score, fundamental_score, macro_score,
         signal = "HOLD"
         confidence = 0
 
-    # Ajustement des prix d’achat/vente pour plus de réalisme (point 2)
+    # Ajustement des prix d’achat/vente avec MTFA : utiliser les niveaux des timeframes supérieurs
     buy_price = min(last["SUPPORT"], last["FIBO_0.382"]) + 0.5 * atr
     sell_price = max(last["RESISTANCE"], last["FIBO_0.618"]) - 0.5 * atr
+    # Ajuster buy_price et sell_price en fonction des timeframes supérieurs
+    for timeframe in ["4h", "1d", "1w"]:
+        if timeframe in price_data_dict and not price_data_dict[timeframe].empty:
+            tf_last = price_data_dict[timeframe].iloc[-1]
+            buy_price = min(buy_price, tf_last["SUPPORT"])  # Prendre le support le plus bas
+            sell_price = max(sell_price, tf_last["RESISTANCE"])  # Prendre la résistance la plus haute
+
     min_spread = 0.5 + (volatility / 100 if volatility != 0 else 0.01)
-    # Validation pour éviter des recommandations trop éloignées (point 2)
+    # Validation pour éviter des recommandations trop éloignées
     max_deviation = 0.05 + (volatility / 200)  # 5% + volatilité ajustée
     if price != 0:
         if buy_price < price * (1 - max_deviation):
