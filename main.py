@@ -1,4 +1,4 @@
-VERSION = "1.0.0"
+VERSION = "7.2.1"
 
 import streamlit as st
 import pandas as pd
@@ -27,7 +27,7 @@ ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
 LUNARCRUSH_API_KEY = os.environ.get("LUNARCRUSH_API_KEY")
 
 # Interface Streamlit
-st.title("Assistant de Trading Crypto v7.2")
+st.title("Assistant de Trading Crypto")
 st.write("Entrez les paramètres pour générer un plan de trading.")
 
 # Formulaire dynamique
@@ -70,8 +70,12 @@ if submit_button:
                 st.text("\n".join(log_lines[-10:]) if log_lines else "Aucun log disponible.")
                 st.stop()
 
-            # Calcul des indicateurs
+            # Calcul des indicateurs sur price_data
             price_data = calculate_indicators(price_data, interval_input)
+
+            # Calcul des indicateurs sur tous les DataFrames dans price_data_dict (MTFA)
+            for key in price_data_dict:
+                price_data_dict[key] = calculate_indicators(price_data_dict[key], key.upper())
 
             # Analyse avec MTFA
             technical_score, technical_details = analyze_technical(price_data, interval_input, price_data_dict)
