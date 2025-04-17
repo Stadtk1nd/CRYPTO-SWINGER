@@ -254,7 +254,7 @@ def fetch_vix(fred_api_key):
 def fetch_fed_interest_rate(fred_api_key):
     """Récupère le taux d’intérêt de la FED via FRED."""
     series_id = "FEDFUNDS"
-    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key escaping any HTML characters that might cause an issue in the generated artifact tag. Please ensure the code itself remains unchanged.
+    url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=1"
 
 Here is the updated `data_fetcher.py` with the necessary modifications:
 
