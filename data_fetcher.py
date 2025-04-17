@@ -1,4 +1,4 @@
-VERSION = "1.0.8"  # Incrémenté de 1.0.7 à 1.0.8 pour refléter la mise à jour dynamique
+VERSION = "1.0.9"  # Incrémenté de 1.0.8 à 1.0.9 pour intégration dynamique des ID
 
 import pandas as pd
 import requests
@@ -7,21 +7,27 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import time
 import os
-import json
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Charger dynamiquement le dictionnaire des ID CoinCap
-def load_coincap_ids():
-    """Charge le dictionnaire des ID CoinCap depuis un fichier JSON."""
+# Récupérer dynamiquement les ID CoinCap au démarrage
+def fetch_coincap_ids():
+    """Récupère les 100 plus grandes cryptos et leurs ID via l'API CoinCap v3."""
+    url = "https://rest.coincap.io/v3/assets?limit=100"
     try:
-        with open("coincap_ids.json", "r") as f:
-            coincap_id_map = json.load(f)
-        logger.info(f"Chargé {len(coincap_id_map)} ID CoinCap depuis coincap_ids.json")
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        coincap_id_map = {}
+        for asset in data["data"]:
+            symbol = asset["symbol"].lower()  # Normaliser en minuscules
+            coincap_id = asset["id"]
+            coincap_id_map[symbol] = coincap_id
+        logger.info(f"Récupéré {len(coincap_id_map)} cryptos depuis CoinCap")
         return coincap_id_map
     except Exception as e:
-        logger.error(f"Erreur lors du chargement de coincap_ids.json : {e}")
+        logger.error(f"Erreur lors de la récupération des ID CoinCap : {e}")
         return {
             "btc": "bitcoin",
             "eth": "ethereum",
@@ -29,6 +35,9 @@ def load_coincap_ids():
             "ada": "cardano",
             "tao": "bittensor",
         }  # Fallback avec quelques cryptos principales
+
+# Charger les ID au démarrage du module
+COINCAP_ID_MAP = fetch_coincap_ids()
 
 def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
     """Récupère les données de prix via un proxy pour contourner les restrictions de Binance."""
@@ -181,8 +190,7 @@ def fetch_fundamental_data(coin_id):
         logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
         return {"market_cap": 0, "volume_24h": 0, "tvl": 0}
 
-    coincap_id_map = load_coincap_ids()  # Charger dynamiquement
-    coincap_id = coincap_id_map.get(coin_id, coin_id)
+    coincap_id = COINCAP_ID_MAP.get(coin_id, coin_id)
 
     url = f"https://rest.coincap.io/v3/assets/{coincap_id}?apiKey={coincap_api_key}"
     try:
@@ -226,7 +234,7 @@ def fetch_fundamental_data(coin_id):
         "tao": "bittensor",
         "solana": "solana",
         "xrp": "xrp",
-        # À compléter pour correspondre à coincap_id_map
+        # À compléter pour correspondre à COINCAP_ID_MAP
     }
     defillama_id = defillama_id_map.get(coin_id, coin_id)
     defillama_url = f"https://api.llama.fi/v2/chains"
