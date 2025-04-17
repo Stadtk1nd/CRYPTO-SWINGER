@@ -74,7 +74,7 @@ def analyze_technical(df, interval_input, price_data_dict):
     # Ajustement du poids ADX selon l’intervalle
     adx_weight = {"1H": 1.0, "4H": 1.0, "1D": 1.2, "1W": 1.2}.get(interval_input, 1.0)
     if last["ADX"] > 25:
-        if last["close"] > last[")/((-20"]:
+        if last["close"] > last["EMA_20"]:
             technical_score += int(3 * adx_weight)
             technical_details.append(f"ADX > 25 et prix > EMA 20 : forte tendance haussière (+{int(3 * adx_weight)})")
         else:
