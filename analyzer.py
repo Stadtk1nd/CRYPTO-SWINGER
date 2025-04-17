@@ -268,19 +268,32 @@ def generate_recommendation(df, technical_score, fundamental_score, macro_score,
         signal = "HOLD"
         confidence = 0
 
-    # Ajustement des prix d’achat/vente avec MTFA : utiliser les niveaux des timeframes supérieurs
-    buy_price = min(last["SUPPORT"], last["FIBO_0.382"]) + 0.5 * atr
-    sell_price = max(last["RESISTANCE"], last["FIBO_0.618"]) - 0.5 * atr
-    # Ajuster buy_price et sell_price en fonction des timeframes supérieurs
+    # Ajustement des prix d'achat/vente en fonction de l'intervalle et du signal
+    volatility_factor = {"1H": 1.0, "4H": 1.5, "1D": 2.0, "1W": 3.0}.get(interval_input, 1.0)
+    if signal == "BUY":
+        # Pour un signal d'achat, acheter près du prix actuel ou légèrement en dessous
+        buy_price = max(price - 0.5 * atr, last["SUPPORT"])
+        # Cible de vente atteignable basée sur ATR et résistance/Fibonacci
+        sell_price = min(price + atr * volatility_factor, last["FIBO_0.618"])
+    elif signal == "SELL":
+        # Pour un signal de vente, vendre près du prix actuel ou légèrement au-dessus
+        sell_price = min(price + 0.5 * atr, last["RESISTANCE"])
+        # Cible d'achat atteignable basée sur ATR et support/Fibonacci
+        buy_price = max(price - atr * volatility_factor, last["FIBO_0.382"])
+    else:
+        # Si HOLD, pas de trade, prix proches du marché
+        buy_price = price - 0.5 * atr
+        sell_price = price + 0.5 * atr
+
+    # Ajuster avec MTFA : utiliser les niveaux des timeframes supérieurs pour limiter les extrêmes
     for timeframe in ["4h", "1d", "1w"]:
         if timeframe in price_data_dict and not price_data_dict[timeframe].empty:
             tf_last = price_data_dict[timeframe].iloc[-1]
-            buy_price = min(buy_price, tf_last["SUPPORT"])  # Prendre le support le plus bas
-            sell_price = max(sell_price, tf_last["RESISTANCE"])  # Prendre la résistance la plus haute
+            buy_price = max(buy_price, tf_last["SUPPORT"])  # Ne pas descendre sous le support des timeframes supérieurs
+            sell_price = min(sell_price, tf_last["RESISTANCE"])  # Ne pas dépasser la résistance des timeframes supérieurs
 
-    min_spread = 0.5 + (volatility / 100 if volatility != 0 else 0.01)
     # Validation pour éviter des recommandations trop éloignées
-    max_deviation = 0.05 + (volatility / 200)  # 5% + volatilité ajustée
+    max_deviation = {"1H": 0.02, "4H": 0.03, "1D": 0.05, "1W": 0.10}.get(interval_input, 0.05)  # Réduire la déviation sur 1H
     if price != 0:
         if buy_price < price * (1 - max_deviation):
             buy_price = price * (1 - max_deviation)
@@ -288,15 +301,18 @@ def generate_recommendation(df, technical_score, fundamental_score, macro_score,
         if sell_price > price * (1 + max_deviation):
             sell_price = price * (1 + max_deviation)
             logger.info(f"Sell price ajusté à {sell_price:.2f} pour respecter la déviation max ({max_deviation*100:.1f}%)")
+
     # Ajustement du spread minimum
+    min_spread = 0.5 + (volatility / 100 if volatility != 0 else 0.01)
     if price != 0 and (sell_price - buy_price) / price * 100 < min_spread:
         buy_price = price * (1 - (atr / price if price != 0 else 0.01))
         sell_price = price * (1 + (atr / price if price != 0 else 0.01))
 
-    if signal == "BUY" and sell_price <= price * 1.10:
+    # Vérification finale pour signal BUY
+    if signal == "BUY" and sell_price <= price * 1.02:  # Réduire la condition pour 1H
         signal = "HOLD"
         confidence = 0
-        logger.info("Signal BUY changé en HOLD : sell_price <= price * 1.10")
+        logger.info("Signal BUY changé en HOLD : sell_price <= price * 1.02")
 
     logger.info(f"Signal final : {signal}, Confiance : {confidence:.2%}, Buy : {buy_price:.2f}, Sell : {sell_price:.2f}")
     return signal, confidence, buy_price, sell_price
