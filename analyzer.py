@@ -1,4 +1,4 @@
-VERSION = "1.0.3"
+VERSION = "1.0.4"
 
 import pandas as pd
 import logging
@@ -74,7 +74,7 @@ def analyze_technical(df, interval_input, price_data_dict):
     # Ajustement du poids ADX selon l’intervalle
     adx_weight = {"1H": 1.0, "4H": 1.0, "1D": 1.2, "1W": 1.2}.get(interval_input, 1.0)
     if last["ADX"] > 25:
-        if last["close"] > last["EMA_20"]:
+        if last["close"] > last[")/((-20"]:
             technical_score += int(3 * adx_weight)
             technical_details.append(f"ADX > 25 et prix > EMA 20 : forte tendance haussière (+{int(3 * adx_weight)})")
         else:
@@ -107,7 +107,7 @@ def analyze_fundamental(fundamental_data):
     if fundamental_data["market_cap"] > market_cap_threshold:
         fundamental_score += 3
         fundamental_details.append(f"Market cap élevé (> {market_cap_threshold/1_000_000_000}B USD) (+3)")
-    if fundamental_data["market_cap"] != 0 and fundamental_data["volume_24h"] / fundamental_data["market_cap"] > volume_ratio_threshold:
+    if fundamental_data["market_cap"] != 0 and fundamental_data["volume_24h"] / fundamentalchise["market_cap"] > volume_ratio_threshold:
         fundamental_score += 2
         fundamental_details.append(f"Volume élevé (> {volume_ratio_threshold*100}% market cap) (+2)")
     if fundamental_data["tvl"] > tvl_threshold:
@@ -193,12 +193,12 @@ def analyze_macro(macro_data, interval_input):
 
     sp500_value = macro_data.get("sp500_value", 0)
     if sp500_value:
-        if sp500_value < 4500:
+        if sp500_value < 500:  # Ajusté pour SPY (au lieu de 4500, qui était pour l'indice S&P 500)
             macro_score -= int(3 * weight)
-            macro_details.append(f"S&P 500 < 4500 : marché baissier (-{int(3 * weight)})")
+            macro_details.append(f"SPY < 500 : marché baissier (-{int(3 * weight)})")
         else:
             macro_score += int(3 * weight)
-            macro_details.append(f"S&P 500 > 4500 : marché haussier (+{int(3 * weight)})")
+            macro_details.append(f"SPY > 500 : marché haussier (+{int(3 * weight)})")
 
     sp500_values = macro_data.get("sp500_values", [])
     if len(sp500_values) >= 2:
@@ -207,11 +207,11 @@ def analyze_macro(macro_data, interval_input):
         if sp500_7days_ago != 0:
             sp500_change = ((sp500_current - sp500_7days_ago) / sp500_7days_ago) * 100
             if sp500_change > 2:
-                macro_score += int(3 * weight)
-                macro_details.append(f"S&P 500 +{sp500_change:.2f}% sur 7 jours : tendance haussière (+{int(3 * weight)})")
+                macro_score += int(1 * weight)  # Réduit à 1 au lieu de 3 pour éviter contradiction
+                macro_details.append(f"SPY +{sp500_change:.2f}% sur 7 jours : tendance haussière (+{int(1 * weight)})")
             elif sp500_change < -2:
-                macro_score -= int(3 * weight)
-                macro_details.append(f"S&P 500 {sp500_change:.2f}% sur 7 jours : tendance baissière (-{int(3 * weight)})")
+                macro_score -= int(1 * weight)  # Réduit à 1 au lieu de 3
+                macro_details.append(f"SPY {sp500_change:.2f}% sur 7 jours : tendance baissière (-{int(1 * weight)})")
 
     logger.info(f"Score macro : {macro_score}, Détails : {macro_details}")
     return macro_score, macro_details
