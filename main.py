@@ -1,4 +1,4 @@
-VERSION = "7.2.4"  # Incrémenté pour ajout du bouton de copie des détails d'analyse avec prompt amélioré
+VERSION = "7.2.5"  # Incrémenté pour correction du bouton de copie dans le presse-papier
 
 import streamlit as st
 import pandas as pd
@@ -150,18 +150,18 @@ if submit_button:
             st.markdown(
                 """
                 <button onclick="copyToClipboard()">Copier les détails dans le presse-papier</button>
-                <textarea id="details_text" style="display:none;">{}</textarea>
+                <input type="hidden" id="details_text" value="{}">
                 <script>
-                    function copyToClipboard() {{
+                    function copyToClipboard() {
                         var text = document.getElementById('details_text').value;
-                        navigator.clipboard.writeText(text).then(function() {{
+                        navigator.clipboard.writeText(text).then(function() {
                             alert('Texte copié dans le presse-papier !');
-                        }}, function(err) {{
+                        }, function(err) {
                             alert('Erreur lors de la copie : ' + err);
-                        }});
-                    }}
+                        });
+                    }
                 </script>
-                """.format(details_text),
+                """.format(details_text.replace('"', '\\"').replace('\n', '\\n')),
                 unsafe_allow_html=True
             )
 
