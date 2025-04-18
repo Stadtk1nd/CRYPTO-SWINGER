@@ -1,4 +1,4 @@
-VERSION = "1.0.6"  # Incrémenté de 1.0.5 pour nettoyage et optimisations
+VERSION = "1.0.7"  # Incrémenté de 1.0.6 pour ajout analyse Bollinger et divergences RSI
 
 import pandas as pd
 import logging
@@ -94,6 +94,24 @@ def analyze_technical(df, interval_input, price_data_dict):
         else:
             technical_score -= int(2 * volume_weight)
             technical_details.append(f"Volume élevé et prix < EMA 20 : baissier (-{int(2 * volume_weight)})")
+
+    # Bandes de Bollinger
+    bb_weight = {"1H": 1.2, "4H": 1.0, "1D": 0.8, "1W": 0.6}.get(interval_input, 1.0)
+    if last["close"] <= last["BB_LOWER"]:
+        technical_score += int(3 * bb_weight)
+        technical_details.append(f"Prix <= BB_LOWER : survendu (+{int(3 * bb_weight)})")
+    elif last["close"] >= last["BB_UPPER"]:
+        technical_score -= int(3 * bb_weight)
+        technical_details.append(f"Prix >= BB_UPPER : suracheté (-{int(3 * bb_weight)})")
+
+    # Divergences RSI
+    div_weight = {"1H": 1.2, "4H": 1.0, "1D": 0.8, "1W": 0.6}.get(interval_input, 1.0)
+    if last["RSI_DIVERGENCE"] == 1:
+        technical_score += int(3 * div_weight)
+        technical_details.append(f"Divergence haussière RSI (+{int(3 * div_weight)})")
+    elif last["RSI_DIVERGENCE"] == -1:
+        technical_score -= int(3 * div_weight)
+        technical_details.append(f"Divergence baissière RSI (-{int(3 * div_weight)})")
 
     return technical_score, technical_details
 
