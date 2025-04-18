@@ -49,7 +49,7 @@ Rédige une synthèse en français, structurée et claire, pour aider un trader 
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-3.5-turbo",
             messages=[
                 system_message,
                 {"role": "user", "content": user_prompt}
