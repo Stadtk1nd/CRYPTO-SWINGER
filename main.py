@@ -1,4 +1,4 @@
-VERSION = "7.2.3"  # Incrémenté pour correction du bug de mise à jour du symbole
+VERSION = "8.0.1"  # Incrémenté pour correction du bug de mise à jour du symbole
 
 import streamlit as st
 import pandas as pd
@@ -101,12 +101,6 @@ if submit_button:
             fundamental_score, fundamental_details = analyze_fundamental(fundamental_data)
             macro_score, macro_details = analyze_macro(macro_data, interval)
 
-            # Visualisation graphique
-            fig = px.line(price_data, x="date", y="close", title=f"Prix de {symbol}")
-            fig.add_scatter(x=price_data["date"], y=price_data["SUPPORT"], name="Support", line=dict(dash="dash"))
-            fig.add_scatter(x=price_data["date"], y=price_data["RESISTANCE"], name="Résistance", line=dict(dash="dash"))
-            st.plotly_chart(fig, key=f"chart_{symbol}_{interval}")
-
             # Recommandation remplacée par analyse synthétique
             st.markdown("### Analyse synthétique")
             st.markdown("""
@@ -145,6 +139,12 @@ if submit_button:
   Pas de vente agressive.  
   → Les fondamentaux macro et crypto sont solides. Une phase de correction peut offrir un point d’entrée plus bas.
             """)
+
+            # Visualisation graphique juste en dessous
+            fig = px.line(price_data, x="date", y="close", title=f"Prix de {symbol}")
+            fig.add_scatter(x=price_data["date"], y=price_data["SUPPORT"], name="Support", line=dict(dash="dash"))
+            fig.add_scatter(x=price_data["date"], y=price_data["RESISTANCE"], name="Résistance", line=dict(dash="dash"))
+            st.plotly_chart(fig, key=f"chart_{symbol}_{interval}")
 
             # Versions
             st.write(f"Versions : Main v{VERSION}, Analyzer v{ANALYZER_VERSION}, Data Fetcher v{DATA_FETCHER_VERSION}, Indicators v{INDICATORS_VERSION}")
