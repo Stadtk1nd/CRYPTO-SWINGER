@@ -1,4 +1,4 @@
-VERSION = "1.0.3"  # Incrémenté de 1.0.2 pour ajout des bandes de Bollinger et divergences RSI
+VERSION = "1.0.4"  # Incrémenté de 1.0.3 pour corriger assignations pandas dans detect_rsi_divergence
 
 import pandas as pd
 import numpy as np
@@ -38,9 +38,9 @@ def detect_rsi_divergence(df, window=5):
         price_change = df["close"].iloc[i] - df["close"].iloc[i-window]
         rsi_change = df["RSI"].iloc[i] - df["RSI"].iloc[i-window]
         if price_change < 0 and rsi_change > 0:  # Divergence haussière
-            df["RSI_DIVERGENCE"].iloc[i] = 1
+            df.loc[df.index[i], "RSI_DIVERGENCE"] = 1
         elif price_change > 0 and rsi_change < 0:  # Divergence baissière
-            df["RSI_DIVERGENCE"].iloc[i] = -1
+            df.loc[df.index[i], "RSI_DIVERGENCE"] = -1
     return df
 
 def calculate_indicators(df, interval):
