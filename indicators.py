@@ -1,4 +1,4 @@
-VERSION = "1.0.2"  # Incrémenté de 1.0.1 pour corrections et optimisations
+VERSION = "1.0.3"  # Incrémenté de 1.0.2 pour ajout des bandes de Bollinger et divergences RSI
 
 import pandas as pd
 import numpy as np
@@ -30,6 +30,18 @@ def validate_data(df):
         return False, "Volume anormal (>3x la moyenne sur 20 périodes)"
     
     return True, "Données valides"
+
+def detect_rsi_divergence(df, window=5):
+    """Détecte les divergences RSI/prix (haussière ou baissière)."""
+    df["RSI_DIVERGENCE"] = 0
+    for i in range(window, len(df)):
+        price_change = df["close"].iloc[i] - df["close"].iloc[i-window]
+        rsi_change = df["RSI"].iloc[i] - df["RSI"].iloc[i-window]
+        if price_change < 0 and rsi_change > 0:  # Divergence haussière
+            df["RSI_DIVERGENCE"].iloc[i] = 1
+        elif price_change > 0 and rsi_change < 0:  # Divergence baissière
+            df["RSI_DIVERGENCE"].iloc[i] = -1
+    return df
 
 def calculate_indicators(df, interval):
     """Calcule les indicateurs techniques pour l’analyse."""
@@ -92,6 +104,16 @@ def calculate_indicators(df, interval):
         price_range = df["RESISTANCE"] - df["SUPPORT"]
         df["FIBO_0.382"] = df["SUPPORT"] + price_range * 0.382
         df["FIBO_0.618"] = df["SUPPORT"] + price_range * 0.618
+
+        # Calcul des bandes de Bollinger
+        bb_window = 20
+        df["BB_MID"] = df["close"].rolling(window=bb_window).mean()
+        df["BB_STD"] = df["close"].rolling(window=bb_window).std()
+        df["BB_UPPER"] = df["BB_MID"] + 2 * df["BB_STD"]
+        df["BB_LOWER"] = df["BB_MID"] - 2 * df["BB_STD"]
+
+        # Détection des divergences RSI
+        df = detect_rsi_divergence(df, window=5)
 
         return df
 
