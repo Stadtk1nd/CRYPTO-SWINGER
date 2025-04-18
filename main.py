@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from data_fetcher import fetch_all_data, VERSION as DATA_FETCHER_VERSION, COINCAP_ID_MAP
 from indicators import calculate_indicators, validate_data, VERSION as INDICATORS_VERSION
 from analyzer import analyze_technical, analyze_fundamental, analyze_macro, generate_recommendation, VERSION as ANALYZER_VERSION
+from gpt_analyzer import generate_gpt_analysis
 
 # Configurer le logger
 logging.basicConfig(level=logging.INFO)
