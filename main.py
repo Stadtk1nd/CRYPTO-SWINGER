@@ -1,4 +1,4 @@
-VERSION = "8.0.1"  # Incrémenté pour correction du bug de mise à jour du symbole
+VERSION = "8.0.2"  # Incrémenté pour correction du bug de mise à jour du symbole
 
 import streamlit as st
 import pandas as pd
@@ -110,14 +110,17 @@ if submit_button:
   - FED < 2 %, CPI à 0.65 %, PIB à 3.83 %, chômage < 4 % → soutien structurel des marchés.  
   - SPY > 400 → le marché actions reste globalement solide malgré un repli technique récent (-4.05 % sur 7 jours).
 
+
 - **Sentiment et volatilité : dégradation**  
   - **Fear & Greed en baisse**, **VIX en hausse** → aversion au risque croissante.
+
 
 - **Indicateurs techniques : dominés par la baisse**  
   - **RSI < 35** → zone de survente, possible rebond à court terme.  
   - **MACD baissier** → momentum négatif persistant.  
   - **ADX > 25 avec prix sous EMA20** → tendance baissière forte.  
   - **EMA12 > EMA26** → signal haussier contradictoire, mais faible dans ce contexte.
+
 
 - **Fondamentaux crypto : solides**  
   - Market cap > 10B, TVL > 1B → actifs bien établis, pas de signe de fuite des capitaux.
@@ -131,9 +134,11 @@ if submit_button:
   → La dynamique baissière est dominante, malgré un possible rebond technique (RSI survendu).  
   → Le MACD + ADX sous EMA20 sont les signaux les plus forts ici.
 
+
 - **Moyen terme (swing)** :  
   Attente active recommandée.  
   → Rester liquide ou en stablecoin en attendant un signal de retournement clair (MACD haussier, retour au-dessus EMA20).
+
 
 - **Long terme (investissement)** :  
   Pas de vente agressive.  
