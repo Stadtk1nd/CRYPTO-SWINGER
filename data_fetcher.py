@@ -439,12 +439,12 @@ def fetch_defillama_chains():
         logger.error(f"Erreur fetch_defillama_chains : {e}")
         return []
 
-def fetch_all_data(symbol, interval, coin_id, fred_api_key, alpha_vantage_api_key):
+@st.cache_data
+def fetch_all_data(symbol, interval, coin_id, fred_api_key, alpha_vantage_api_key, _cache_key=None):
     """Récupère toutes les données en parallèle."""
     if not all([fred_api_key, alpha_vantage_api_key]):
         logger.error("Clés API FRED ou Alpha Vantage manquantes.")
         return pd.DataFrame(), {}, {}, {}
-
     intervals = ["1h", "4h", "1d", "1w"]
     price_data_dict = {}
     defillama_chains = fetch_defillama_chains()
