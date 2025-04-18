@@ -149,11 +149,19 @@ if submit_button:
             )
             st.markdown(
                 """
-                <button onclick="navigator.clipboard.writeText(document.getElementById('details_text').value)">
-                    Copier les détails dans le presse-papier
-                </button>
+                <button onclick="copyToClipboard()">Copier les détails dans le presse-papier</button>
                 <textarea id="details_text" style="display:none;">{}</textarea>
-                """.format(details_text.replace("\n", "\\n").replace('"', '\\"')),
+                <script>
+                    function copyToClipboard() {{
+                        var text = document.getElementById('details_text').value;
+                        navigator.clipboard.writeText(text).then(function() {{
+                            alert('Texte copié dans le presse-papier !');
+                        }}, function(err) {{
+                            alert('Erreur lors de la copie : ' + err);
+                        }});
+                    }}
+                </script>
+                """.format(details_text),
                 unsafe_allow_html=True
             )
 
