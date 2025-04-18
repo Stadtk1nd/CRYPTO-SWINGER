@@ -1,4 +1,4 @@
-VERSION = "1.0.13"  # Incrémenté de 1.0.12 à 1.0.13 pour gérer la clé API CoinCap
+VERSION = "1.0.14"  # Incrémenté de 1.0.13 pour nettoyer et optimiser
 
 import pandas as pd
 import requests
@@ -7,47 +7,19 @@ from concurrent.futures import ThreadPoolExecutor
 import logging
 import time
 import os
+import cachetools.func
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-# Récupérer dynamiquement les ID CoinCap au démarrage
+# Cache pour données macro (1 heure)
+TTL_CACHE_SECONDS = 3600
+
 def fetch_coincap_ids():
     """Récupère les 100 plus grandes cryptos et leurs ID via l'API CoinCap v3."""
     coincap_api_key = os.environ.get("COINCAP_API_KEY")
     if not coincap_api_key:
-        logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
-        return {
-            "btc": "bitcoin",
-            "eth": "ethereum",
-            "bnb": "binance-coin",
-            "ada": "cardano",
-            "tao": "bittensor",
-        }  # Fallback avec quelques cryptos principales
-
-    url = f"https://rest.coincap.io/v3/assets?limit=100&apiKey={coincap_api_key}"
-    try:
-        response = requests.get(url, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        coincap_id_map = {}
-        for asset in data["data"]:
-            symbol = asset["symbol"].lower()  # Normaliser en minuscules
-            coincap_id = asset["id"]
-            coincap_id_map[symbol] = coincap_id
-        logger.info(f"Récupéré {len(coincap_id_map)} cryptos depuis CoinCap")
-        return coincap_id_map
-    except requests.exceptions.HTTPError as e:
-        logger.error(f"Erreur lors de la récupération des ID CoinCap : {e} - Code HTTP : {e.response.status_code}")
-        return {
-            "btc": "bitcoin",
-            "eth": "ethereum",
-            "bnb": "binance-coin",
-            "ada": "cardano",
-            "tao": "bittensor",
-        }  # Fallback en cas d'erreur
-    except Exception as e:
-        logger.error(f"Erreur lors de la récupération des ID CoinCap : {e}")
+        logger.error("Clé API CoinCap manquante. Configurez COINCAP_API_KEY.")
         return {
             "btc": "bitcoin",
             "eth": "ethereum",
@@ -56,23 +28,40 @@ def fetch_coincap_ids():
             "tao": "bittensor",
         }
 
-# Charger les ID au démarrage du module
+    url = f"https://rest.coincap.io/v3/assets?limit=100&apiKey={coincap_api_key}"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        coincap_id_map = {asset["symbol"].lower(): asset["id"] for asset in data["data"]}
+        logger.info(f"Récupéré {len(coincap_id_map)} cryptos depuis CoinCap")
+        return coincap_id_map
+    except Exception as e:
+        logger.error(f"Erreur récupération ID CoinCap : {e}")
+        return {
+            "btc": "bitcoin",
+            "eth": "ethereum",
+            "bnb": "binance-coin",
+            "ada": "cardano",
+            "tao": "bittensor",
+        }
+
 COINCAP_ID_MAP = fetch_coincap_ids()
 
 def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
-    """Récupère les données de prix via un proxy pour contourner les restrictions de Binance."""
+    """Récupère les données de prix via proxy Binance."""
     url = f"https://crypto-swing-proxy.fly.dev/proxy/api/v3/klines?symbol={symbol}&interval={interval}&limit=200"
     for attempt in range(max_retries):
         try:
             start_time = datetime.now()
             response = requests.get(url, timeout=10)
             if response.status_code == 451:
-                logger.error(f"Erreur API via proxy : Accès bloqué pour des raisons légales (451 Client Error)")
+                logger.error("Erreur proxy : Accès bloqué (451)")
                 return fetch_klines_fallback(symbol, interval)
             response.raise_for_status()
             data = response.json()
             if isinstance(data, dict) and "code" in data:
-                logger.error(f"Erreur API via proxy : {data['msg']} (code: {data['code']})")
+                logger.error(f"Erreur API proxy : {data['msg']} (code: {data['code']})")
                 return pd.DataFrame()
             df = pd.DataFrame(data, columns=[
                 "timestamp", "open", "high", "low", "close", "volume", "close_time",
@@ -82,28 +71,27 @@ def fetch_klines(symbol, interval, max_retries=3, retry_delay=10):
             for col in numeric_columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').astype(float)
                 if df[col].isnull().any():
-                    logger.warning(f"Des valeurs non numériques ont été trouvées dans la colonne {col}, remplacées par NaN")
+                    logger.warning(f"Valeurs non numériques dans {col}, remplacées par NaN")
             df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
-            logger.info(f"fetch_klines: {len(df)} lignes récupérées pour {symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
+            logger.info(f"fetch_klines: {len(df)} lignes pour {symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
             return df
         except Exception as e:
-            logger.error(f"Erreur fetch_klines via proxy ({symbol}, {interval}) - Tentative {attempt + 1}/{max_retries} : {e}")
+            logger.error(f"Erreur fetch_klines ({symbol}, {interval}) - Tentative {attempt + 1}/{max_retries} : {e}")
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
             else:
-                logger.warning(f"Échec après {max_retries} tentatives via proxy, passage à l’API de secours (CoinCap)")
+                logger.warning("Échec proxy, passage à CoinCap")
                 return fetch_klines_fallback(symbol, interval)
 
 def fetch_klines_fallback(symbol, interval):
-    """Récupère les données de prix via CoinCap v3 comme solution de secours."""
+    """Récupère les données de prix via CoinCap v3."""
     interval_map = {"1h": "h1", "4h": "h4", "1d": "d1", "1w": "d7"}
     coincap_interval = interval_map.get(interval.lower(), "h1")
-    symbol_map = {"BTCUSDT": "bitcoin", "ETHUSDT": "ethereum", "BNBUSDT": "binance-coin", "ADAUSDT": "cardano"}
-    coin_id = symbol_map.get(symbol, symbol.lower().replace("usdt", ""))
+    coin_id = COINCAP_ID_MAP.get(symbol.lower().replace("usdt", ""), symbol.lower().replace("usdt", ""))
     
     coincap_api_key = os.environ.get("COINCAP_API_KEY")
     if not coincap_api_key:
-        logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
+        logger.error("Clé API CoinCap manquante.")
         return fetch_klines_fallback_kraken(symbol, interval)
 
     url = f"https://rest.coincap.io/v3/candles?exchange=binance_timestamps&interval={coincap_interval}&baseId={coin_id}&apiKey={coincap_api_key}"
@@ -114,7 +102,7 @@ def fetch_klines_fallback(symbol, interval):
         data = response.json()
         candles = data.get("data", [])
         if not candles:
-            logger.error(f"fetch_klines_fallback: Aucune donnée renvoyée par CoinCap pour {coin_id}")
+            logger.error(f"Aucune donnée CoinCap pour {coin_id}")
             return fetch_klines_fallback_kraken(symbol, interval)
         df = pd.DataFrame(candles)
         df["timestamp"] = pd.to_datetime(df["period"], unit="ms")
@@ -130,16 +118,20 @@ def fetch_klines_fallback(symbol, interval):
         df["taker_buy_base"] = 0.0
         df["taker_buy_quote"] = 0.0
         df["ignore"] = 0
-        logger.info(f"fetch_klines_fallback: {len(df)} lignes récupérées pour {coin_id} ({coincap_interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
+        logger.info(f"fetch_klines_fallback: {len(df)} lignes pour {coin_id} ({coincap_interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
         return df
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Erreur CoinCap ({symbol}, {interval}) : {e}")
+        if e.response.status_code == 429:
+            logger.warning("Limite de taux CoinCap atteinte.")
+        return fetch_klines_fallback_kraken(symbol, interval)
     except Exception as e:
         logger.error(f"Erreur fetch_klines_fallback ({symbol}, {interval}) : {e}")
         return fetch_klines_fallback_kraken(symbol, interval)
 
 def fetch_klines_fallback_kraken(symbol, interval):
-    """Récupère les données de prix via Kraken comme solution de secours supplémentaire."""
-    symbol_map = {"BTCUSDT": "XBTUSD", "ETHUSDT": "ETHUSD", "BNBUSDT": "BNBUSD", "ADAUSDT": "ADAUSD"}
-    kraken_symbol = symbol_map.get(symbol, symbol.replace("USDT", "USD"))
+    """Récupère les données de prix via Kraken."""
+    kraken_symbol = symbol.replace("USDT", "USD").replace("BTC", "XBT")
     interval_map = {"1h": 60, "4h": 240, "1d": 1440, "1w": 10080}
     kraken_interval = interval_map.get(interval.lower(), 60)
     
@@ -150,11 +142,11 @@ def fetch_klines_fallback_kraken(symbol, interval):
         response.raise_for_status()
         data = response.json()
         if data["error"] and len(data["error"]) > 0:
-            logger.error(f"Erreur API Kraken : {data['error']}")
+            logger.error(f"Erreur Kraken : {data['error']}")
             return fetch_klines_fallback_binance_futures(symbol, interval)
         ohlc_data = data["result"].get(kraken_symbol, [])
         if not ohlc_data:
-            logger.error(f"fetch_klines_fallback_kraken: Aucune donnée renvoyée par Kraken pour {kraken_symbol}")
+            logger.error(f"Aucune donnée Kraken pour {kraken_symbol}")
             return fetch_klines_fallback_binance_futures(symbol, interval)
         df = pd.DataFrame(ohlc_data, columns=[
             "timestamp", "open", "high", "low", "close", "vwap", "volume", "count"
@@ -168,14 +160,19 @@ def fetch_klines_fallback_kraken(symbol, interval):
         df["taker_buy_base"] = 0.0
         df["taker_buy_quote"] = 0.0
         df["ignore"] = 0
-        logger.info(f"fetch_klines_fallback_kraken: {len(df)} lignes récupérées pour {kraken_symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
+        logger.info(f"fetch_klines_fallback_kraken: {len(df)} lignes pour {kraken_symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
         return df
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Erreur Kraken ({symbol}, {interval}) : {e}")
+        if e.response.status_code == 429:
+            logger.warning("Limite de taux Kraken atteinte.")
+        return fetch_klines_fallback_binance_futures(symbol, interval)
     except Exception as e:
         logger.error(f"Erreur fetch_klines_fallback_kraken ({symbol}, {interval}) : {e}")
         return fetch_klines_fallback_binance_futures(symbol, interval)
 
 def fetch_klines_fallback_binance_futures(symbol, interval):
-    """Récupère les données de prix via Binance Futures comme dernier recours."""
+    """Récupère les données de prix via Binance Futures."""
     interval_map = {"1h": "1h", "4h": "4h", "1d": "1d", "1w": "1w"}
     binance_interval = interval_map.get(interval.lower(), "1h")
     url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval={binance_interval}&limit=200"
@@ -183,12 +180,12 @@ def fetch_klines_fallback_binance_futures(symbol, interval):
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
         if response.status_code == 451:
-            logger.error(f"Erreur API Binance Futures : Accès bloqué pour des raisons légales (451 Client Error)")
+            logger.error("Erreur Binance Futures : Accès bloqué (451)")
             return pd.DataFrame()
         response.raise_for_status()
         data = response.json()
         if isinstance(data, dict) and "code" in data:
-            logger.error(f"Erreur API Binance Futures : {data['msg']} (code: {data['code']})")
+            logger.error(f"Erreur Binance Futures : {data['msg']} (code: {data['code']})")
             return pd.DataFrame()
         df = pd.DataFrame(data, columns=[
             "timestamp", "open", "high", "low", "close", "volume", "close_time",
@@ -197,29 +194,31 @@ def fetch_klines_fallback_binance_futures(symbol, interval):
         df["date"] = pd.to_datetime(df["timestamp"], unit="ms")
         df["close"] = df["close"].astype(float)
         df["volume"] = df["volume"].astype(float)
-        logger.info(f"fetch_klines_fallback_binance_futures: {len(df)} lignes récupérées pour {symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
+        logger.info(f"fetch_klines_fallback_binance_futures: {len(df)} lignes pour {symbol} ({interval}) en {(datetime.now() - start_time).total_seconds():.2f}s")
         return df
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Erreur Binance Futures ({symbol}, {interval}) : {e}")
+        if e.response.status_code == 429:
+            logger.warning("Limite de taux Binance Futures atteinte.")
+        return pd.DataFrame()
     except Exception as e:
         logger.error(f"Erreur fetch_klines_fallback_binance_futures ({symbol}, {interval}) : {e}")
         return pd.DataFrame()
 
-def fetch_fundamental_data(coin_id):
+def fetch_fundamental_data(coin_id, defillama_chains=None):
     """Récupère les données fondamentales via CoinCap v3 et DeFiLlama pour TVL."""
     coincap_api_key = os.environ.get("COINCAP_API_KEY")
     if not coincap_api_key:
-        logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
+        logger.error("Clé API CoinCap manquante.")
         return {"market_cap": 0, "volume_24h": 0, "tvl": 0}
 
     coincap_id = COINCAP_ID_MAP.get(coin_id, coin_id)
-
     url = f"https://rest.coincap.io/v3/assets/{coincap_id}?apiKey={coincap_api_key}"
     try:
         start_time = datetime.now()
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        logger.debug(f"Réponse brute CoinCap v3 pour {coincap_id} : {data}")
-
         asset_data = data.get("data", {})
         fundamental_data = {
             "market_cap": float(asset_data.get("marketCapUsd", 0)),
@@ -228,52 +227,35 @@ def fetch_fundamental_data(coin_id):
         }
 
         if all(value == 0 for value in fundamental_data.values()):
-            logger.warning(f"fetch_fundamental_data: Toutes les données fondamentales pour {coincap_id} sont à 0. Vérifiez la réponse de l’API.")
+            logger.warning(f"Toutes données fondamentales à 0 pour {coincap_id}.")
     except requests.exceptions.HTTPError as e:
-        logger.error(f"Erreur HTTP fetch_fundamental_data ({coincap_id}) : {e} - Code HTTP : {e.response.status_code}")
+        logger.error(f"Erreur HTTP fetch_fundamental_data ({coincap_id}) : {e}")
         if e.response.status_code == 429:
-            logger.warning("Limite de taux atteinte pour CoinCap. Essayez de réduire la fréquence des requêtes.")
+            logger.warning("Limite de taux CoinCap atteinte.")
         return {"market_cap": 0, "volume_24h": 0, "tvl": 0}
     except Exception as e:
         logger.error(f"Erreur fetch_fundamental_data ({coincap_id}) : {e}")
         return {"market_cap": 0, "volume_24h": 0, "tvl": 0}
 
-    # Vérification du volume par rapport à la capitalisation boursière
     market_cap_threshold = 10_000_000_000
     volume_ratio_threshold = 0.01
     if fundamental_data["market_cap"] > market_cap_threshold:
         logger.info(f"Market cap élevé pour {coincap_id} : {fundamental_data['market_cap']}")
     if fundamental_data["market_cap"] != 0 and fundamental_data["volume_24h"] / fundamental_data["market_cap"] > volume_ratio_threshold:
-        logger.info(f"Volume élevé pour {coincap_id} : {fundamental_data['volume_24h'] / fundamental_data['market_cap'] * 100:.2f}% de la market cap")
+        logger.info(f"Volume élevé pour {coincap_id} : {fundamental_data['volume_24h'] / fundamental_data['market_cap'] * 100:.2f}%")
 
-    defillama_id_map = {
-        "bitcoin": "bitcoin",
-        "ethereum": "ethereum",
-        "binancecoin": "binance-smart-chain",
-        "cardano": "cardano",
-        "tao": "bittensor",
-        "solana": "solana",
-        "xrp": "xrp",
-        # À compléter pour correspondre à COINCAP_ID_MAP
-    }
-    defillama_id = defillama_id_map.get(coin_id, coin_id)
-    defillama_url = f"https://api.llama.fi/v2/chains"
-    try:
-        response = requests.get(defillama_url, timeout=10)
-        response.raise_for_status()
-        chains = response.json()
-        for chain in chains:
+    if defillama_chains:
+        defillama_id = COINCAP_ID_MAP.get(coin_id, coin_id)
+        for chain in defillama_chains:
             if chain.get("gecko_id") == defillama_id:
                 fundamental_data["tvl"] = float(chain.get("tvl", 0))
+                logger.info(f"TVL récupéré pour {defillama_id} : {fundamental_data['tvl']}")
                 break
-        logger.info(f"fetch_fundamental_data: TVL récupéré pour {defillama_id} : {fundamental_data['tvl']}")
-    except Exception as e:
-        logger.error(f"Erreur fetch TVL via DeFiLlama ({defillama_id}) : {e}")
-        fundamental_data["tvl"] = 0
 
-    logger.info(f"fetch_fundamental_data: Données récupérées pour {coincap_id} en {(datetime.now() - start_time).total_seconds():.2f}s")
+    logger.info(f"fetch_fundamental_data: Données pour {coincap_id} en {(datetime.now() - start_time).total_seconds():.2f}s")
     return fundamental_data
 
+@cachetools.func.ttl_cache(maxsize=128, ttl=TTL_CACHE_SECONDS)
 def fetch_fear_greed():
     """Récupère l’indice Fear & Greed."""
     url = "https://api.alternative.me/fng/?limit=7"
@@ -289,8 +271,9 @@ def fetch_fear_greed():
         logger.error(f"Erreur fetch_fear_greed : {e}")
         return 0, []
 
+@cachetools.func.ttl_cache(maxsize=128, ttl=TTL_CACHE_SECONDS)
 def fetch_vix(fred_api_key):
-    """Récupère l’indice VIX (volatilité implicite) via FRED."""
+    """Récupère l’indice VIX via FRED."""
     series_id = "VIXCLS"
     url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=7"
     try:
@@ -305,8 +288,9 @@ def fetch_vix(fred_api_key):
         logger.error(f"Erreur fetch_vix : {e}")
         return 0, []
 
+@cachetools.func.ttl_cache(maxsize=128, ttl=TTL_CACHE_SECONDS)
 def fetch_fed_interest_rate(fred_api_key):
-    """Récupère le taux d’intérêt de la FED via FRED."""
+    """Récupère le taux d’intérêt FED via FRED."""
     series_id = "FEDFUNDS"
     url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=1"
     try:
@@ -321,8 +305,9 @@ def fetch_fed_interest_rate(fred_api_key):
         logger.error(f"Erreur fetch_fed_interest_rate : {e}")
         return 0
 
+@cachetools.func.ttl_cache(maxsize=128, ttl=TTL_CACHE_SECONDS)
 def fetch_cpi(fred_api_key):
-    """Récupère l’Indice des prix à la consommation (CPI) via FRED."""
+    """Récupère le CPI via FRED."""
     series_id = "CPIAUCSL"
     url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=2"
     try:
@@ -337,10 +322,10 @@ def fetch_cpi(fred_api_key):
         logger.error(f"Erreur fetch_cpi : {e}")
         return 0, 0
 
+@cachetools.func.ttl_cache(maxsize=128, ttl=TTL_CACHE_SECONDS)
 def fetch_gdp(fred_api_key):
-    """Récupère le PIB USA via FRED avec gestion des séparateurs décimaux."""
+    """Récupère le PIB USA via FRED."""
     series_id = "GDP"
-    # Limiter aux données à partir de 2000 pour éviter les données anciennes non fiables
     start_date = "2000-01-01"
     url = f"https://api.stlouisfed.org/fred/series/observations?series_id={series_id}&api_key={fred_api_key}&file_type=json&limit=20&start_date={start_date}"
     try:
@@ -348,8 +333,6 @@ def fetch_gdp(fred_api_key):
         response = requests.get(url, timeout=10)
         response.raise_for_status()
         data = response.json()
-        logger.debug(f"Réponse brute FRED pour GDP : {data}")
-        
         if "observations" not in data or not data["observations"]:
             logger.warning("fetch_gdp: Aucune observation disponible")
             return 0, 0
@@ -359,33 +342,30 @@ def fetch_gdp(fred_api_key):
         for obs in data["observations"]:
             value = obs.get("value", "0")
             date = obs.get("date", "inconnue")
-            # Ignorer les valeurs vides ou non exploitables
             if not value or value.strip() in [".", ""]:
                 invalid_count += 1
                 continue
-            # Nettoyer la valeur : gérer les séparateurs de milliers et points
             try:
                 cleaned_value = value.replace(",", "").strip()
                 if cleaned_value.count(".") > 1:
-                    logger.warning(f"fetch_gdp: Valeur avec plusieurs points pour la date {date} : '{value}', ignorée")
+                    logger.warning(f"fetch_gdp: Valeur avec plusieurs points pour {date} : '{value}'")
                     invalid_count += 1
                     continue
                 gdp_value = float(cleaned_value)
                 if gdp_value <= 0:
-                    logger.warning(f"fetch_gdp: Valeur non positive rencontrée pour la date {date} : {gdp_value}, ignorée")
+                    logger.warning(f"fetch_gdp: Valeur non positive pour {date} : {gdp_value}")
                     invalid_count += 1
                     continue
                 gdp_values.append(gdp_value)
             except ValueError as e:
-                logger.warning(f"fetch_gdp: Valeur non numérique rencontrée pour la date {date} : '{value}', ignorée")
+                logger.warning(f"fetch_gdp: Valeur non numérique pour {date} : '{value}'")
                 invalid_count += 1
                 continue
 
         if invalid_count > 0:
             logger.warning(f"fetch_gdp: {invalid_count} valeurs invalides ignorées")
-
         if len(gdp_values) < 2:
-            logger.warning(f"fetch_gdp: Moins de 2 valeurs valides trouvées ({len(gdp_values)})")
+            logger.warning(f"fetch_gdp: Moins de 2 valeurs valides ({len(gdp_values)})")
             return 0, 0
 
         logger.info(f"fetch_gdp: PIB récupéré ({gdp_values[-1]}, {gdp_values[-2]}) en {(datetime.now() - start_time).total_seconds():.2f}s")
@@ -394,6 +374,7 @@ def fetch_gdp(fred_api_key):
         logger.error(f"Erreur fetch_gdp : {e}")
         return 0, 0
 
+@cachetools.func.ttl_cache(maxsize=128, ttl=TTL_CACHE_SECONDS)
 def fetch_unemployment_rate(fred_api_key):
     """Récupère le taux de chômage USA via FRED."""
     series_id = "UNRATE"
@@ -410,8 +391,9 @@ def fetch_unemployment_rate(fred_api_key):
         logger.error(f"Erreur fetch_unemployment_rate : {e}")
         return 0
 
+@cachetools.func.ttl_cache(maxsize=128, ttl=TTL_CACHE_SECONDS)
 def fetch_sp500(alpha_vantage_api_key):
-    """Récupère les données de SPY (ETF suivant le S&P 500) via Alpha Vantage, en tenant compte des jours ouvrés."""
+    """Récupère les données SPY via Alpha Vantage."""
     url = f"https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=SPY&apikey={alpha_vantage_api_key}&outputsize=compact"
     try:
         start_time = datetime.now()
@@ -423,44 +405,53 @@ def fetch_sp500(alpha_vantage_api_key):
             logger.warning("fetch_sp500: Aucune donnée disponible")
             return 0, []
 
-        # Convertir les données en DataFrame pour faciliter la manipulation
-        dates = sorted(daily_data.keys())
         df = pd.DataFrame([
             {"date": date, "close": float(daily_data[date]["4. close"])}
-            for date in dates
+            for date in sorted(daily_data.keys())
         ])
         df["date"] = pd.to_datetime(df["date"])
-        
-        # Filtrer les jours ouvrés (lundi à vendredi, exclure week-ends)
-        df["day_of_week"] = df["date"].dt.dayofweek  # 0 = lundi, 6 = dimanche
-        df = df[df["day_of_week"] < 5]  # Exclure samedi (5) et dimanche (6)
+        df = df[df["date"].dt.dayofweek < 5]  # Exclure week-ends
 
-        # Prendre les 7 derniers jours ouvrés
         if len(df) < 7:
-            logger.warning(f"fetch_sp500: Moins de 7 jours ouvrés disponibles ({len(df)})")
+            logger.warning(f"fetch_sp500: Moins de 7 jours ouvrés ({len(df)})")
             return 0, []
-        
-        sp500_values = df["close"].tail(7).tolist()  # 7 derniers jours ouvrés
-        sp500_value = sp500_values[-1]  # Dernière valeur (plus récente)
 
-        logger.info(f"fetch_sp500: {len(sp500_values)} jours ouvrés de données SPY récupérés en {(datetime.now() - start_time).total_seconds():.2f}s")
+        sp500_values = df["close"].tail(7).tolist()
+        sp500_value = sp500_values[-1]
+        logger.info(f"fetch_sp500: {len(sp500_values)} jours SPY en {(datetime.now() - start_time).total_seconds():.2f}s")
         return sp500_value, sp500_values
     except requests.exceptions.Timeout:
-        logger.error("fetch_sp500: Délai d’attente dépassé lors de la connexion à Alpha Vantage")
+        logger.error("fetch_sp500: Délai dépassé")
         return 0, []
     except Exception as e:
         logger.error(f"Erreur fetch_sp500 : {e}")
         return 0, []
 
+@cachetools.func.ttl_cache(maxsize=128, ttl=TTL_CACHE_SECONDS)
+def fetch_defillama_chains():
+    """Récupère les données DeFiLlama pour TVL."""
+    url = "https://api.llama.fi/v2/chains"
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        logger.error(f"Erreur fetch_defillama_chains : {e}")
+        return []
+
 def fetch_all_data(symbol, interval, coin_id, fred_api_key, alpha_vantage_api_key):
-    """Récupère toutes les données en parallèle, incluant plusieurs intervalles pour MTFA."""
-    intervals = ["1h", "4h", "1d", "1w"]  # Récupérer plusieurs intervalles pour MTFA
+    """Récupère toutes les données en parallèle."""
+    if not all([fred_api_key, alpha_vantage_api_key]):
+        logger.error("Clés API FRED ou Alpha Vantage manquantes.")
+        return pd.DataFrame(), {}, {}, {}
+
+    intervals = ["1h", "4h", "1d", "1w"]
     price_data_dict = {}
+    defillama_chains = fetch_defillama_chains()
 
     with ThreadPoolExecutor() as executor:
-        # Récupérer les données de prix pour tous les intervalles (point 1 et 5)
         futures_klines = {intv: executor.submit(fetch_klines, symbol, intv) for intv in intervals}
-        future_fundamental = executor.submit(fetch_fundamental_data, coin_id)
+        future_fundamental = executor.submit(fetch_fundamental_data, coin_id, defillama_chains)
         future_fear_greed = executor.submit(fetch_fear_greed)
         future_vix = executor.submit(fetch_vix, fred_api_key)
         future_fed_rate = executor.submit(fetch_fed_interest_rate, fred_api_key)
@@ -469,7 +460,6 @@ def fetch_all_data(symbol, interval, coin_id, fred_api_key, alpha_vantage_api_ke
         future_unemployment = executor.submit(fetch_unemployment_rate, fred_api_key)
         future_sp500 = executor.submit(fetch_sp500, alpha_vantage_api_key)
 
-        # Récupérer les données de prix pour l’intervalle demandé et les autres
         for intv in intervals:
             price_data_dict[intv] = futures_klines[intv].result()
         fundamental_data = future_fundamental.result()
@@ -496,6 +486,5 @@ def fetch_all_data(symbol, interval, coin_id, fred_api_key, alpha_vantage_api_ke
             "sp500_values": sp500_values
         }
 
-    # Retourner les données de prix pour l’intervalle demandé et les données MTFA
     price_data = price_data_dict.get(interval.lower(), pd.DataFrame())
     return price_data, fundamental_data, macro_data, price_data_dict
