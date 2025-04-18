@@ -1,10 +1,11 @@
-VERSION = "7.2.5"  # Incrémenté pour correction du bouton de copie dans le presse-papier
+VERSION = "7.2.6"  # Incrémenté pour correction du bouton de copie dans le presse-papier avec échappement correct
 
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import os
 import logging
+import html
 from datetime import datetime, timezone
 from data_fetcher import fetch_all_data, VERSION as DATA_FETCHER_VERSION, COINCAP_ID_MAP
 from indicators import calculate_indicators, validate_data, VERSION as INDICATORS_VERSION
@@ -147,21 +148,23 @@ if submit_button:
             details_text = format_analysis_details(
                 symbol, signal, technical_score, technical_details, fundamental_score, fundamental_details, macro_score, macro_details
             )
+            escaped_text = html.escape(details_text)
             st.markdown(
-                """
+                f"""
                 <button onclick="copyToClipboard()">Copier les détails dans le presse-papier</button>
-                <input type="hidden" id="details_text" value="{}">
+                <input type="hidden" id="details_text" value="{escaped_text}">
                 <script>
-                    function copyToClipboard() {
+                    function copyToClipboard() {{
                         var text = document.getElementById('details_text').value;
-                        navigator.clipboard.writeText(text).then(function() {
-                            alert('Texte copié dans le presse-papier !');
-                        }, function(err) {
-                            alert('Erreur lors de la copie : ' + err);
-                        });
-                    }
+                        navigator.clipboard.writeText(text).then(function() {{
+                            document.getElementById('copy_status').innerText = 'Texte copié dans le presse-papier !';
+                        }}, function(err) {{
+                            document.getElementById('copy_status').innerText = 'Erreur lors de la copie : ' + err;
+                        }});
+                    }}
                 </script>
-                """.format(details_text.replace('"', '\\"').replace('\n', '\\n')),
+                <div id="copy_status"></div>
+                """,
                 unsafe_allow_html=True
             )
 
