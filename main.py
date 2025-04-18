@@ -1,4 +1,4 @@
-VERSION = "7.2.1"
+VERSION = "7.2.2"
 
 import streamlit as st
 import pandas as pd
@@ -6,53 +6,71 @@ import plotly.express as px
 import os
 import logging
 from datetime import datetime, timezone
-from data_fetcher import fetch_all_data, VERSION as DATA_FETCHER_VERSION
+from data_fetcher import fetch_all_data, VERSION as DATA_FETCHER_VERSION, COINCAP_ID_MAP
 from indicators import calculate_indicators, validate_data, VERSION as INDICATORS_VERSION
 from analyzer import analyze_technical, analyze_fundamental, analyze_macro, generate_recommendation, VERSION as ANALYZER_VERSION
 
-# Configurer le logger pour n’afficher que les messages de niveau INFO ou supérieur
+# Configurer le logger
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Handler en mémoire pour capturer les logs
+# Capturer les logs pour Streamlit
 from io import StringIO
 log_stream = StringIO()
 stream_handler = logging.StreamHandler(log_stream)
 stream_handler.setFormatter(logging.Formatter("%(asctime)s - %(levelname)s - %(message)s"))
 logging.getLogger('').addHandler(stream_handler)
 
-# Clés API depuis variables d’environnement
+# Clés API
 FRED_API_KEY = os.environ.get("FRED_API_KEY")
 ALPHA_VANTAGE_API_KEY = os.environ.get("ALPHA_VANTAGE_API_KEY")
-LUNARCRUSH_API_KEY = os.environ.get("LUNARCRUSH_API_KEY")
+
+# Vérification des clés API
+if not all([FRED_API_KEY, ALPHA_VANTAGE_API_KEY]):
+    st.error("❌ Clés API manquantes. Configurez FRED_API_KEY et ALPHA_VANTAGE_API_KEY.")
+    st.stop()
 
 # Interface Streamlit
 st.title("Assistant de Trading Crypto")
 st.write("Entrez les paramètres pour générer un plan de trading.")
 
-# Formulaire dynamique
+# Formulaire
 with st.form("trading_form"):
     symbol_input = st.text_input("🔍 Entrez la crypto (ex: BTC ou BTCUSDT)", "BTC").upper()
     interval_input = st.selectbox("⏳ Choisissez l’intervalle", ["1H", "4H", "1D", "1W"], index=0)
     submit_button = st.form_submit_button("Lancer l’analyse")
 
 if submit_button:
+    # Validation du symbole
+    if not symbol_input or not symbol_input.isalnum():
+        st.error("❌ Symbole invalide. Entrez un symbole comme BTC ou BTCUSDT.")
+        st.stop()
+
     with st.spinner("Analyse en cours..."):
         try:
-            # Réinitialiser le buffer de logs
+            # Réinitialiser les logs
             log_stream.seek(0)
             log_stream.truncate(0)
 
             # Préparation des paramètres
             symbol = symbol_input if symbol_input.endswith("USDT") else symbol_input + "USDT"
-            coin_id_map = {"BTC": "bitcoin", "ETH": "ethereum", "BNB": "binancecoin", "ADA": "cardano"}
             symbol_key = symbol_input.upper().replace("USDT", "")
-            coin_id = coin_id_map.get(symbol_key, symbol_key.lower())
+            coin_id = COINCAP_ID_MAP.get(symbol_key.lower(), symbol_key.lower())
             interval = interval_input.lower()
 
-            # Récupération des données avec MTFA
+            # Vérifier si le symbole existe
+            if symbol_key.lower() not in COINCAP_ID_MAP:
+                st.warning(f"⚠️ Symbole {symbol_key} non trouvé dans CoinCap. Tentative avec ID générique.")
+
+            # Récupération des données (cachée)
+            @st.cache_data(show_spinner=False)
+            def cached_fetch_all_data(_symbol, _interval, _coin_id, _fred_key, _alpha_key):
+                return fetch_all_data(_symbol, _interval, _coin_id, _fred_key, _alpha_key)
+
             logger.info(f"Début de fetch_all_data pour {symbol} ({interval})")
-            price_data, fundamental_data, macro_data, price_data_dict = fetch_all_data(symbol, interval, coin_id, FRED_API_KEY, ALPHA_VANTAGE_API_KEY)
+            price_data, fundamental_data, macro_data, price_data_dict = cached_fetch_all_data(
+                symbol, interval, coin_id, FRED_API_KEY, ALPHA_VANTAGE_API_KEY
+            )
 
             # Validation des données
             is_valid, validation_message = validate_data(price_data)
@@ -60,38 +78,35 @@ if submit_button:
                 st.error(f"❌ Erreur : {validation_message}")
                 log_content = log_stream.getvalue()
                 if "451 Client Error" in log_content:
-                    st.markdown("**Détails supplémentaires** : L’accès à l’API Binance est bloqué pour des raisons légales (erreur 451). Cela peut être dû à des restrictions géographiques ou à l’adresse IP de Streamlit Cloud.")
+                    st.markdown("**Détails** : Accès à l’API Binance bloqué (erreur 451). Restrictions géographiques ou IP possible.")
                 elif "401 Client Error" in log_content:
-                    st.markdown("**Détails supplémentaires** : L’accès à l’API CoinGecko a échoué (erreur 401). Une clé API est requise. Veuillez configurer la variable d’environnement COINGECKO_API_KEY dans Streamlit Cloud.")
+                    st.markdown("**Détails** : Accès à l’API CoinCap échoué (erreur 401). Vérifiez COINCAP_API_KEY.")
                 else:
-                    st.markdown("**Détails supplémentaires** : Impossible de récupérer les données de prix via les API disponibles (Binance, CoinGecko, Kraken, Binance Futures). Consultez les logs ci-dessous pour plus d’informations.")
-                st.markdown("### Logs de débogage")
-                log_lines = log_stream.getvalue().splitlines()
-                st.text("\n".join(log_lines[-10:]) if log_lines else "Aucun log disponible.")
+                    st.markdown("**Détails** : Échec récupération données via APIs (Binance, CoinCap, Kraken, Binance Futures).")
+                st.markdown("### Logs")
+                st.text("\n".join(log_stream.getvalue().splitlines()[-10:]))
                 st.stop()
 
-            # Calcul des indicateurs sur price_data
+            # Calcul des indicateurs
             price_data = calculate_indicators(price_data, interval_input)
-
-            # Calcul des indicateurs sur tous les DataFrames dans price_data_dict (MTFA)
             for key in price_data_dict:
                 price_data_dict[key] = calculate_indicators(price_data_dict[key], key.upper())
 
-            # Analyse avec MTFA
+            # Analyse MTFA
             technical_score, technical_details = analyze_technical(price_data, interval_input, price_data_dict)
             fundamental_score, fundamental_details = analyze_fundamental(fundamental_data)
             macro_score, macro_details = analyze_macro(macro_data, interval_input)
 
-            # Recommandation avec MTFA
+            # Recommandation
             signal, confidence, buy_price, sell_price = generate_recommendation(
                 price_data, technical_score, fundamental_score, macro_score, interval_input, price_data_dict
             )
 
-            # Affichage des résultats
+            # Résultats
             st.markdown("### Recommandation de trading")
             st.markdown(f"**Préconisation** : {signal}")
-            st.markdown(f"**Prix d'achat recommandé** : ${buy_price:.2f}")
-            st.markdown(f"**Prix de vente recommandé** : ${sell_price:.2f}")
+            st.markdown(f"**Prix d'achat** : ${buy_price:.2f}")
+            st.markdown(f"**Prix de vente** : ${sell_price:.2f}")
             st.markdown(f"**Confiance** : {confidence:.2%}")
 
             with st.expander("Détails de l’analyse"):
@@ -101,14 +116,13 @@ if submit_button:
                 st.markdown(f"**Score fondamental** : {fundamental_score}")
                 for detail in fundamental_details:
                     st.markdown(f"- {detail}")
-                st.markdown(f"**Score macroéconomique** : {macro_score}")
+                st.markdown(f"**Score macro** : {macro_score}")
                 for detail in macro_details:
                     st.markdown(f"- {detail}")
 
-            # Affichage des logs après analyse
-            with st.expander("Logs de débogage (après analyse)"):
-                log_content = log_stream.getvalue().splitlines()
-                st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
+            # Logs
+            with st.expander("Logs"):
+                st.text("\n".join(log_stream.getvalue().splitlines()[-10:]))
 
             # Visualisation
             fig = px.line(price_data, x="date", y="close", title=f"Prix de {symbol}")
@@ -116,12 +130,11 @@ if submit_button:
             fig.add_scatter(x=price_data["date"], y=price_data["RESISTANCE"], name="Résistance", line=dict(dash="dash"))
             st.plotly_chart(fig)
 
-            # Afficher les versions des fichiers sous le graphique
-            st.write(f"Versions des fichiers utilisés : Main v{VERSION}, Analyzer v{ANALYZER_VERSION}, Data Fetcher v{DATA_FETCHER_VERSION}, Indicators v{INDICATORS_VERSION}")
+            # Versions
+            st.write(f"Versions : Main v{VERSION}, Analyzer v{ANALYZER_VERSION}, Data Fetcher v{DATA_FETCHER_VERSION}, Indicators v{INDICATORS_VERSION}")
 
         except Exception as e:
             logger.error(f"Erreur générale : {e}")
-            st.error(f"❌ Une erreur est survenue : {e}")
-            st.markdown("### Logs de débogage")
-            log_content = log_stream.getvalue().splitlines()
-            st.text("\n".join(log_content[-10:]) if log_content else "Aucun log disponible.")
+            st.error(f"❌ Erreur : {e}")
+            st.markdown("### Logs")
+            st.text("\n".join(log_stream.getvalue().splitlines()[-10:]))
