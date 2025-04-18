@@ -1,4 +1,4 @@
-VERSION = "1.0.9"  # Incrémenté de 1.0.8 à 1.0.9 pour intégration dynamique des ID
+VERSION = "1.0.11"  # Incrémenté de 1.0.10 à 1.0.11 pour mieux gérer les valeurs GDP
 
 import pandas as pd
 import requests
@@ -335,21 +335,28 @@ def fetch_gdp(fred_api_key):
         gdp_values = []
         for obs in data["observations"]:
             value = obs.get("value", "0")
-            # Ignorer les valeurs qui sont juste un point ou non exploitables
-            if value == "." or not value:
-                logger.warning(f"fetch_gdp: Valeur invalide rencontrée : '{value}', ignorée")
+            date = obs.get("date", "inconnue")
+            # Journaliser la valeur brute pour débogage
+            logger.debug(f"fetch_gdp: Observation pour {date} : valeur brute = '{value}'")
+            # Ignorer les valeurs vides ou non exploitables
+            if not value or value.strip() in [".", ""]:
+                logger.warning(f"fetch_gdp: Valeur invalide rencontrée pour la date {date} : '{value}', ignorée")
                 continue
-            # Nettoyer la valeur : gérer les séparateurs décimaux
+            # Nettoyer la valeur : gérer les séparateurs de milliers et points
             try:
-                # Remplacer les séparateurs de milliers inutiles (ex. "12,345.67" -> "12345.67")
-                cleaned_value = value.replace(",", "")
+                # Remplacer les virgules de milliers et gérer les points multiples
+                cleaned_value = value.replace(",", "").strip()
+                # Si la valeur contient plusieurs points, c'est probablement une erreur
+                if cleaned_value.count(".") > 1:
+                    logger.warning(f"fetch_gdp: Valeur avec plusieurs points pour la date {date} : '{value}', ignorée")
+                    continue
                 gdp_value = float(cleaned_value)
                 if gdp_value <= 0:
-                    logger.warning(f"fetch_gdp: Valeur non positive rencontrée : {gdp_value}, ignorée")
+                    logger.warning(f"fetch_gdp: Valeur non positive rencontrée pour la date {date} : {gdp_value}, ignorée")
                     continue
                 gdp_values.append(gdp_value)
             except ValueError as e:
-                logger.warning(f"fetch_gdp: Valeur non numérique rencontrée : '{value}', ignorée")
+                logger.warning(f"fetch_gdp: Valeur non numérique rencontrée pour la date {date} : '{value}', ignorée")
                 continue
 
         if len(gdp_values) < 2:
