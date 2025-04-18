@@ -1,4 +1,4 @@
-VERSION = "7.2.2"
+VERSION = "7.2.3"  # Incrémenté pour correction du bug de mise à jour du symbole
 
 import streamlit as st
 import pandas as pd
@@ -62,14 +62,19 @@ if submit_button:
             if symbol_key.lower() not in COINCAP_ID_MAP:
                 st.warning(f"⚠️ Symbole {symbol_key} non trouvé dans CoinCap. Tentative avec ID générique.")
 
+            # Purger cache si symbole change
+            if "last_symbol" not in st.session_state or st.session_state.last_symbol != symbol:
+                st.cache_data.clear()
+                st.session_state.last_symbol = symbol
+
             # Récupération des données (cachée)
             @st.cache_data(show_spinner=False)
-            def cached_fetch_all_data(_symbol, _interval, _coin_id, _fred_key, _alpha_key):
-                return fetch_all_data(_symbol, _interval, _coin_id, _fred_key, _alpha_key)
+            def cached_fetch_all_data(_symbol, _interval, _coin_id, _fred_key, _alpha_key, _cache_key=None):
+                return fetch_all_data(_symbol, _interval, _coin_id, _fred_key, _alpha_key, _cache_key=_cache_key)
 
             logger.info(f"Début de fetch_all_data pour {symbol} ({interval})")
             price_data, fundamental_data, macro_data, price_data_dict = cached_fetch_all_data(
-                symbol, interval, coin_id, FRED_API_KEY, ALPHA_VANTAGE_API_KEY
+                symbol, interval, coin_id, FRED_API_KEY, ALPHA_VANTAGE_API_KEY, _cache_key=symbol
             )
 
             # Validation des données
@@ -128,7 +133,7 @@ if submit_button:
             fig = px.line(price_data, x="date", y="close", title=f"Prix de {symbol}")
             fig.add_scatter(x=price_data["date"], y=price_data["SUPPORT"], name="Support", line=dict(dash="dash"))
             fig.add_scatter(x=price_data["date"], y=price_data["RESISTANCE"], name="Résistance", line=dict(dash="dash"))
-            st.plotly_chart(fig)
+            st.plotly_chart(fig, key=f"chart_{symbol}_{interval}")
 
             # Versions
             st.write(f"Versions : Main v{VERSION}, Analyzer v{ANALYZER_VERSION}, Data Fetcher v{DATA_FETCHER_VERSION}, Indicators v{INDICATORS_VERSION}")
