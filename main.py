@@ -112,7 +112,6 @@ if submit_button:
             st.markdown(f"**Préconisation** : {signal}")
             st.markdown(f"**Prix d'achat** : ${buy_price:.2f}")
             st.markdown(f"**Prix de vente** : ${sell_price:.2f}")
-            st.markdown(f"**Confiance** : {confidence:.2%}")
 
             with st.expander("Détails de l’analyse"):
                 st.markdown(f"**Score technique** : {technical_score}")
