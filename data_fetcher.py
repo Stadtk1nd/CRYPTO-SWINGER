@@ -1,4 +1,4 @@
-VERSION = "1.0.12"  # Incrémenté de 1.0.11 à 1.0.12 pour limiter les données GDP et réduire les logs
+VERSION = "1.0.13"  # Incrémenté de 1.0.12 à 1.0.13 pour gérer la clé API CoinCap
 
 import pandas as pd
 import requests
@@ -14,7 +14,18 @@ logger.setLevel(logging.INFO)
 # Récupérer dynamiquement les ID CoinCap au démarrage
 def fetch_coincap_ids():
     """Récupère les 100 plus grandes cryptos et leurs ID via l'API CoinCap v3."""
-    url = "https://rest.coincap.io/v3/assets?limit=100"
+    coincap_api_key = os.environ.get("COINCAP_API_KEY")
+    if not coincap_api_key:
+        logger.error("Clé API CoinCap manquante. Veuillez configurer la variable d’environnement COINCAP_API_KEY.")
+        return {
+            "btc": "bitcoin",
+            "eth": "ethereum",
+            "bnb": "binance-coin",
+            "ada": "cardano",
+            "tao": "bittensor",
+        }  # Fallback avec quelques cryptos principales
+
+    url = f"https://rest.coincap.io/v3/assets?limit=100&apiKey={coincap_api_key}"
     try:
         response = requests.get(url, timeout=10)
         response.raise_for_status()
@@ -26,6 +37,15 @@ def fetch_coincap_ids():
             coincap_id_map[symbol] = coincap_id
         logger.info(f"Récupéré {len(coincap_id_map)} cryptos depuis CoinCap")
         return coincap_id_map
+    except requests.exceptions.HTTPError as e:
+        logger.error(f"Erreur lors de la récupération des ID CoinCap : {e} - Code HTTP : {e.response.status_code}")
+        return {
+            "btc": "bitcoin",
+            "eth": "ethereum",
+            "bnb": "binance-coin",
+            "ada": "cardano",
+            "tao": "bittensor",
+        }  # Fallback en cas d'erreur
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des ID CoinCap : {e}")
         return {
@@ -34,7 +54,7 @@ def fetch_coincap_ids():
             "bnb": "binance-coin",
             "ada": "cardano",
             "tao": "bittensor",
-        }  # Fallback avec quelques cryptos principales
+        }
 
 # Charger les ID au démarrage du module
 COINCAP_ID_MAP = fetch_coincap_ids()
